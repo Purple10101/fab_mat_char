@@ -94,42 +94,7 @@ def visualise_val_predictions(
 ):
     """
     Visualise instance-segmentation performance on the validation dataset.
-
-    Expects the model to output logits in model(x)["out"] with shape [B,5,H,W]:
-      - out[:,0:2] : foreground logits (bg/fg)
-      - out[:,2:3] : center heatmap logits
-      - out[:,3:5] : offsets (dx, dy) from pixel -> instance center
-
-    Expects val_dataset[idx] to return:
-      (image, targets_dict) where targets_dict contains:
-        - "fg":      [H,W] long (0/1)
-        - "center":  [1,H,W] float (0..1)
-        - "offsets": [2,H,W] float
-      Optionally, if present:
-        - "id_map":  [H,W] long instance IDs (0=bg, 1..K)
-
-    Parameters
-    ----------
-    model : torch.nn.Module
-    val_dataset : torch.utils.data.Dataset
-    device : torch.device
-    n : int
-    fg_thresh : float
-        Threshold applied to predicted fg probability.
-    center_thresh : float
-        Threshold for accepting center peaks.
-    min_peak_dist : int
-        Window size for non-maximum suppression when finding peaks.
-    max_assign_dist : float
-        Maximum distance (in pixels) between a pixel's voted center and a detected
-        center peak to accept assignment.
-    seed : int
-    show_centers : bool
-        If True, overlay detected center peaks on the center heatmap.
-    show_gt_instances : bool
-        If True and "id_map" exists, plot GT instances.
     """
-
     def _sigmoid(x: np.ndarray) -> np.ndarray:
         return 1.0 / (1.0 + np.exp(-x))
 
@@ -139,7 +104,6 @@ def visualise_val_predictions(
         if fg_mask is not None:
             c = c * fg_mask.astype(c.dtype)
 
-        # Non-maximum suppression via max filter
         max_f = ndimage.maximum_filter(c, size=min_dist)
         peaks = (c == max_f) & (c >= thresh)
 
@@ -148,23 +112,17 @@ def visualise_val_predictions(
             return []
 
         conf = c[ys, xs]
-        order = np.argsort(-conf)  # high -> low
+        order = np.argsort(-conf)
         return list(zip(ys[order], xs[order]))
 
     def _decode_instances(fg_mask: np.ndarray, centers_yx: list[tuple[int, int]],
                           offsets: np.ndarray, max_dist: float):
-        """
-        fg_mask: [H,W] uint8/bool
-        centers_yx: list[(y,x)]
-        offsets: [2,H,W] float where offsets[0]=dx, offsets[1]=dy
-        returns labels [H,W] int32 (0=bg, 1..N)
-        """
         h, w = fg_mask.shape
         labels = np.zeros((h, w), dtype=np.int32)
         if len(centers_yx) == 0:
             return labels
 
-        centers = np.array([(y, x) for (y, x) in centers_yx], dtype=np.float32)  # [N,2]
+        centers = np.array([(y, x) for (y, x) in centers_yx], dtype=np.float32)
 
         ys, xs = np.where(fg_mask > 0)
         if len(xs) == 0:
@@ -176,7 +134,6 @@ def visualise_val_predictions(
         vote_y = ys.astype(np.float32) + dy
         vote_x = xs.astype(np.float32) + dx
 
-        # squared distances [P,N]
         d2 = (vote_y[:, None] - centers[None, :, 0]) ** 2 + (vote_x[:, None] - centers[None, :, 1]) ** 2
         nn = np.argmin(d2, axis=1)
         nn_dist = np.sqrt(d2[np.arange(d2.shape[0]), nn])
@@ -192,31 +149,40 @@ def visualise_val_predictions(
     rng.shuffle(idxs)
     idxs = idxs[: min(n, len(idxs))]
 
-    cols = 5
+    # Can we show GT instances?
+    has_id_map = False
+    if len(idxs) > 0:
+        _, t0 = val_dataset[idxs[0]]
+        has_id_map = isinstance(t0, dict) and ("id_map" in t0)
+
+    show_gt_inst_panel = bool(show_gt_instances and has_id_map)
+
+    # Base panels: Image, Pred FG, GT FG, Center, Pred Inst
+    cols = 6 if show_gt_inst_panel else 5
     rows = len(idxs)
 
-    fig, axes = plt.subplots(rows, cols, figsize=(4.3 * cols, 3.6 * rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 3.6 * rows))
     if rows == 1:
         axes = np.expand_dims(axes, axis=0)
 
     for r, idx in enumerate(idxs):
         img, t = val_dataset[idx]  # img: [3,H,W], t: dict
 
-        x = img.unsqueeze(0).to(device)  # [1,3,H,W]
+        x = img.unsqueeze(0).to(device)
         out_t = model(x)["out"]          # [1,5,H,W]
-        out = out_t[0].detach().cpu().numpy()  # [5,H,W]
+        out = out_t[0].detach().cpu().numpy()
 
         # --- predicted fg ---
         fg_logits = out[0:2]  # [2,H,W]
-        fg_prob = torch.softmax(torch.from_numpy(fg_logits), dim=0)[1].numpy()  # [H,W]
+        fg_prob = torch.softmax(torch.from_numpy(fg_logits), dim=0)[1].numpy()
         pred_fg = (fg_prob > fg_thresh).astype(np.uint8)
 
         # --- predicted centers ---
-        center_logits = out[2]               # [H,W]
+        center_logits = out[2]
         center_prob = _sigmoid(center_logits)
 
         # --- predicted offsets ---
-        offsets = out[3:5]  # [2,H,W] dx, dy
+        offsets = out[3:5]  # [2,H,W]
 
         centers = _find_center_peaks(center_prob, fg_mask=pred_fg, thresh=center_thresh, min_dist=min_peak_dist)
         pred_instances = _decode_instances(pred_fg, centers, offsets, max_dist=max_assign_dist)
@@ -225,26 +191,34 @@ def visualise_val_predictions(
         # --- GT ---
         gt_fg = t["fg"].detach().cpu().numpy().astype(np.uint8)
         gt_instances = None
-        if show_gt_instances and ("id_map" in t):
+        if show_gt_inst_panel:
             gt_instances = t["id_map"].detach().cpu().numpy().astype(np.int32)
 
         # --- image to numpy ---
         img_np = img.permute(1, 2, 0).cpu().numpy()
 
+        c = 0
+
         # Panel 1: image
-        ax = axes[r, 0]
+        ax = axes[r, c]; c += 1
         ax.imshow(img_np)
         ax.set_title(f"Image (idx={idx})")
         ax.axis("off")
 
         # Panel 2: predicted fg mask
-        ax = axes[r, 1]
+        ax = axes[r, c]; c += 1
         ax.imshow(pred_fg, cmap="gray", vmin=0, vmax=1)
         ax.set_title(f"Pred FG (t={fg_thresh:.2f})")
         ax.axis("off")
 
-        # Panel 3: center heatmap (+ peaks)
-        ax = axes[r, 2]
+        # Panel 3: GT fg mask
+        ax = axes[r, c]; c += 1
+        ax.imshow(gt_fg, cmap="gray", vmin=0, vmax=1)
+        ax.set_title("GT FG")
+        ax.axis("off")
+
+        # Panel 4: center heatmap (+ peaks)
+        ax = axes[r, c]; c += 1
         ax.imshow(center_prob, cmap="gray", vmin=0, vmax=1)
         if show_centers and len(centers) > 0:
             cy, cx = zip(*centers)
@@ -252,23 +226,21 @@ def visualise_val_predictions(
         ax.set_title(f"Center prob (peaks={len(centers)})")
         ax.axis("off")
 
-        # Panel 4: predicted instances
-        ax = axes[r, 3]
+        # Panel 5: predicted instances
+        ax = axes[r, c]; c += 1
         ax.imshow(pred_instances, cmap="viridis")
         ax.set_title(f"Pred instances (n={n_inst})")
         ax.axis("off")
 
-        # Panel 5 (optional): GT instances
-        if cols == 5:
-            ax = axes[r, 4]
+        # Panel 6: GT instances (optional)
+        if show_gt_inst_panel:
+            ax = axes[r, c]; c += 1
             ax.imshow(gt_instances, cmap="viridis")
             ax.set_title("GT instances")
             ax.axis("off")
 
     plt.tight_layout()
     plt.show()
-
-
 
 
 
