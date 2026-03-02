@@ -12,60 +12,82 @@ import torch.nn as nn
 import torch.optim as optim
 import torch
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from sklearn.metrics import f1_score
 
-from part_seg.src.nn_seg_data import PSegDataset, build_deeplab
+from seg_par.src.nn_seg_data import PSegDataset, build_deeplab_instance
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-@torch.no_grad()
-def eval_epoch(model, loader, device):
-    model.eval()
-    total_loss = 0.0
-    all_preds = []
-    all_targs = []
+def instance_losses(out, batch, w_center=1.0, w_off=1.0):
+    """
+    out: [B,5,H,W] where
+      out[:,0:2] = fg logits
+      out[:,2:3] = center logits
+      out[:,3:5] = offsets
+    batch: dict with fg [B,H,W], center [B,1,H,W], offsets [B,2,H,W]
+    """
+    fg_t = batch["fg"]                      # [B,H,W] long
+    center_t = batch["center"]              # [B,1,H,W] float
+    offsets_t = batch["offsets"]            # [B,2,H,W] float
 
-    ce = nn.CrossEntropyLoss()
+    fg_logits = out[:, 0:2]
+    center_logits = out[:, 2:3]
+    offsets_pred = out[:, 3:5]
 
-    for imgs, masks in loader:
-        imgs = imgs.to(device)
-        masks = masks.to(device)
+    # foreground semantic loss
+    loss_fg = F.cross_entropy(fg_logits, fg_t)
 
-        out = model(imgs)["out"]  # [B,2,H,W]
-        loss = ce(out, masks) + 0.5 * dice_loss_from_logits(out, masks)
+    # center heatmap loss
+    loss_center = F.binary_cross_entropy_with_logits(center_logits, center_t)
 
-        total_loss += loss.item() * imgs.size(0)
+    # offsets loss only where fg == 1
+    fg_mask = (fg_t == 1).unsqueeze(1).float()  # [B,1,H,W]
+    # avoid dividing by 0
+    denom = fg_mask.sum().clamp_min(1.0)
+    loss_off = (F.smooth_l1_loss(offsets_pred * fg_mask, offsets_t * fg_mask, reduction="sum") / denom)
 
-        pred = out.argmax(dim=1)  # [B,H,W]
-        all_preds.append(pred.flatten().cpu())
-        all_targs.append(masks.flatten().cpu())
-
-    all_preds = torch.cat(all_preds).numpy()
-    all_targs = torch.cat(all_targs).numpy()
-    f1 = f1_score(all_targs, all_preds, average="binary", zero_division=0)
-
-    return total_loss / len(loader.dataset), f1
-
+    return loss_fg + w_center * loss_center + w_off * loss_off, {
+        "loss_fg": loss_fg.item(),
+        "loss_center": loss_center.item(),
+        "loss_off": loss_off.item()
+    }
 
 def train_epoch(model, loader, optimizer, device):
     model.train()
-    total_loss = 0.0
-    ce = nn.CrossEntropyLoss()
+    total = 0.0
 
-    for imgs, masks in loader:
+    for imgs, targets in loader:
         imgs = imgs.to(device)
-        masks = masks.to(device)
+        targets = {k: v.to(device) for k, v in targets.items()}
 
-        out = model(imgs)["out"]
-        loss = ce(out, masks) + 0.5 * dice_loss_from_logits(out, masks)
+        out = model(imgs)["out"]  # [B,5,H,W]
+        loss, parts = instance_losses(out, targets, w_center=1.0, w_off=0.1)
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item() * imgs.size(0)
+        total += loss.item() * imgs.size(0)
 
-    return total_loss / len(loader.dataset)
+    return total / len(loader.dataset)
+
+
+@torch.no_grad()
+def eval_epoch(model, loader, device):
+    model.eval()
+    total = 0.0
+
+    for imgs, targets in loader:
+        imgs = imgs.to(device)
+        targets = {k: v.to(device) for k, v in targets.items()}
+
+        out = model(imgs)["out"]
+        loss, _ = instance_losses(out, targets, w_center=1.0, w_off=0.1)
+
+        total += loss.item() * imgs.size(0)
+
+    return total / len(loader.dataset)
 
 
 def dice_loss_from_logits(logits, targets, eps=1e-6):
@@ -84,17 +106,11 @@ def dice_loss_from_logits(logits, targets, eps=1e-6):
 def main():
     dataset = PSegDataset()
 
-    # Display Example:
-    # subject = "f28b702df5"
-    # plt.imshow(dataset.total_dataset[subject][1])
-    # plt.axis("off")
-    # plt.show()
-
     train_loader = DataLoader(
         dataset.train_ds,
         batch_size=8,
         shuffle=True,
-        num_workers=0,   # set 0 first (Windows), increase later if stable
+        num_workers=0,
         pin_memory=True
     )
     val_loader = DataLoader(
@@ -105,19 +121,21 @@ def main():
         pin_memory=True
     )
 
-    model = build_deeplab(num_classes=2).to(device)
+    model = build_deeplab_instance(num_out=5).to(device)
+
     optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
-    best_f1 = -1.0
+    best_val = float("inf")
     for epoch in range(1, 31):
         tr_loss = train_epoch(model, train_loader, optimizer, device)
-        va_loss, va_f1 = eval_epoch(model, val_loader, device)
+        va_loss = eval_epoch(model, val_loader, device)
 
-        print(f"Epoch {epoch:02d} | train_loss={tr_loss:.4f} | val_loss={va_loss:.4f} | val_f1={va_f1:.4f}")
+        print(f"Epoch {epoch:02d} | train_loss={tr_loss:.4f} | val_loss={va_loss:.4f}")
 
-        if va_f1 > best_f1:
-            best_f1 = va_f1
-            torch.save(model.state_dict(), "best_deeplab_particles.pt")
+        # Save best by lowest validation loss
+        if va_loss < best_val:
+            best_val = va_loss
+            torch.save(model.state_dict(), "best_deeplab_instances.pt")
             print("  saved best model")
 
 
