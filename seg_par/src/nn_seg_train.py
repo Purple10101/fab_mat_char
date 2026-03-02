@@ -8,49 +8,52 @@ training script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 
-import torch.nn as nn
 import torch.optim as optim
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import f1_score
 
 from seg_par.src.nn_seg_data import PSegDataset, build_deeplab_instance
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def instance_losses(out, batch, w_center=1.0, w_off=1.0):
+def instance_losses(out, batch, w_center=1.0, w_off=0.1):
     """
-    out: [B,5,H,W] where
-      out[:,0:2] = fg logits
-      out[:,2:3] = center logits
-      out[:,3:5] = offsets
+    out: [B,4,H,W] where
+      out[:,0:1] = fg logits (binary)
+      out[:,1:2] = center logits (binary heatmap)
+      out[:,2:4] = offsets (dx, dy)
     batch: dict with fg [B,H,W], center [B,1,H,W], offsets [B,2,H,W]
     """
-    fg_t = batch["fg"]                      # [B,H,W] long
-    center_t = batch["center"]              # [B,1,H,W] float
+    fg_t = batch["fg"]                      # [B,H,W] long {0,1}
+    center_t = batch["center"]              # [B,1,H,W] float 0..1
     offsets_t = batch["offsets"]            # [B,2,H,W] float
 
-    fg_logits = out[:, 0:2]
-    center_logits = out[:, 2:3]
-    offsets_pred = out[:, 3:5]
+    fg_logits = out[:, 0:1]                 # [B,1,H,W]
+    center_logits = out[:, 1:2]             # [B,1,H,W]
+    offsets_pred = out[:, 2:4]              # [B,2,H,W]
 
-    # foreground semantic loss
-    loss_fg = F.cross_entropy(fg_logits, fg_t)
+    # foreground loss (binary)
+    loss_fg = F.binary_cross_entropy_with_logits(
+        fg_logits, fg_t.unsqueeze(1).float()
+    )
 
-    # center heatmap loss
+    # center heatmap loss (binary)
     loss_center = F.binary_cross_entropy_with_logits(center_logits, center_t)
 
     # offsets loss only where fg == 1
     fg_mask = (fg_t == 1).unsqueeze(1).float()  # [B,1,H,W]
-    # avoid dividing by 0
     denom = fg_mask.sum().clamp_min(1.0)
-    loss_off = (F.smooth_l1_loss(offsets_pred * fg_mask, offsets_t * fg_mask, reduction="sum") / denom)
+    loss_off = (
+        F.smooth_l1_loss(offsets_pred * fg_mask, offsets_t * fg_mask, reduction="sum")
+        / denom
+    )
 
-    return loss_fg + w_center * loss_center + w_off * loss_off, {
+    total = loss_fg + w_center * loss_center + w_off * loss_off
+    return total, {
         "loss_fg": loss_fg.item(),
         "loss_center": loss_center.item(),
-        "loss_off": loss_off.item()
+        "loss_off": loss_off.item(),
     }
 
 def train_epoch(model, loader, optimizer, device):
@@ -61,7 +64,7 @@ def train_epoch(model, loader, optimizer, device):
         imgs = imgs.to(device)
         targets = {k: v.to(device) for k, v in targets.items()}
 
-        out = model(imgs)["out"]  # [B,5,H,W]
+        out = model(imgs)["out"]  # [B,4,H,W]
         loss, parts = instance_losses(out, targets, w_center=1.0, w_off=0.1)
 
         optimizer.zero_grad(set_to_none=True)
@@ -89,20 +92,6 @@ def eval_epoch(model, loader, device):
 
     return total / len(loader.dataset)
 
-
-def dice_loss_from_logits(logits, targets, eps=1e-6):
-    """
-    logits: [B,2,H,W]
-    targets: [B,H,W] {0,1}
-    """
-    probs = torch.softmax(logits, dim=1)[:, 1]      # foreground prob [B,H,W]
-    targets_f = targets.float()
-
-    intersection = (probs * targets_f).sum(dim=(1,2))
-    union = probs.sum(dim=(1,2)) + targets_f.sum(dim=(1,2))
-    dice = (2 * intersection + eps) / (union + eps)
-    return 1 - dice.mean()
-
 def main():
     dataset = PSegDataset()
 
@@ -121,7 +110,7 @@ def main():
         pin_memory=True
     )
 
-    model = build_deeplab_instance(num_out=5).to(device)
+    model = build_deeplab_instance(num_out=4).to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
