@@ -1,0 +1,233 @@
+\documentclass[a4paper, 12pt, english]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{babel}
+
+% Use Garamond font
+\usepackage{ebgaramond}
+\usepackage{float}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{subfig}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{matlab-prettifier}
+\usepackage{indentfirst}
+\usepackage{verbatim}
+\usepackage{textcomp}
+\usepackage{gensymb}
+\usepackage{longtable}
+
+\usepackage{relsize}
+
+\usepackage{lipsum}
+\usepackage{xcolor}
+\usepackage{xparse}
+\NewDocumentCommand{\myrule}{O{1pt} O{2pt} O{black}}{%
+  \par\nobreak % don't break a page here
+  \kern\the\prevdepth % don't take into account the depth of the preceding line
+  \kern#2 % space before the rule
+  {\color{#3}\hrule height #1 width\hsize} % the rule
+  \kern#2 % space after the rule
+  \nointerlineskip % no additional space after the rule
+}
+\usepackage[section]{placeins}
+
+\usepackage{booktabs}
+\usepackage{colortbl}%
+   \newcommand{\myrowcolour}{\rowcolor[gray]{0.925}}
+   
+\usepackage[obeyspaces]{url}
+\usepackage{etoolbox}
+\usepackage[colorlinks=true, linkcolor=black]{hyperref}
+
+\usepackage{geometry}
+\geometry{
+    paper=a4paper, % Change to letterpaper for US letter
+    inner=1.8cm, % Inner margin
+    outer=1.8cm, % Outer margin
+    bindingoffset=.5cm, % Binding offset
+    top=1.8cm, % Top margin
+    bottom=1.8cm, % Bottom margin
+    %showframe, % Uncomment to show how the type block is set on the page
+}
+%*******************************************************************************%
+%************************************START**************************************%
+%*******************************************************************************%
+\begin{document}
+
+\begin{titlepage}
+\begin{center}
+\par
+\vfill
+\vspace{500pt}
+\includegraphics[width=0.65\textwidth]{figs/bath22.png}
+
+\vspace{70pt}
+\textbf{\LARGE  MESO FIBRE PARTICLE SIZE CHARACTERISATION}\\
+\vspace{10pt}
+\textbf{\large System Requirements}\\
+\vspace{30pt}
+\begin{table}[H]
+  \centering
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{@{}llllp{6.5cm}@{}}
+    \toprule
+    \textbf{Version} & \textbf{Date} & \textbf{Author} & \textbf{Reviewed By} & \textbf{Change Summary} \\
+    \midrule
+    0.1 & 2026-02-09 & Van Kaliafetis & Joshua Poole & Initial requirements proposed. \\
+    0.2 & 2026-03-06 & Van Kaliafetis & Ori Sela & Restructured requirements and added assumptions. \\
+    1.0 & 2026-03-11 & Van Kaliafetis & Joshua Poole & Finalised requirements and formatting. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\par
+\vfill
+\vspace{275pt}
+
+\par
+\vfill
+\end{center}
+
+\end{titlepage}
+
+\newpage
+
+\tableofcontents
+\newpage
+
+\setcounter{tocdepth}{2}
+
+\section{Scope}
+\subsection{System Purpose}
+The system shall provide laboratory-scale characterisation of dry recycled textile fibres intended for use as partial replacement of virgin wood fibres in Medium Density Fibreboard (MDF) manufacture.
+
+The system shall:
+
+\begin{itemize}
+    \item Employ a modular architecture to enable straightforward integration into existing manufacturing workflows and reduce barriers to commercial adoption.
+    \item Quantify fibre geometric properties (e.g. length, width proxy, aspect ratio).
+    \item Provide fibre size distribution suitable for assessing blend suitability and process risk.pilot-scale decision-making
+    \item The system shall minimise capital and operational costs to ensure economic feasibility for deployment within MDF manufacturing facilities.
+\end{itemize}
+
+The system is not intended to:
+
+\begin{itemize}
+    \item Perform analysis on virgin feedstock.
+    \item Produce MDF boards.
+    \item Replace full board-level mechanical testing.
+    \item Alter the properties of a sample
+    \item Perform any separation or blending of samples.
+\end{itemize}
+
+
+\section{Assumptions}
+
+The following assumptions underpin the requirements:
+
+\begin{itemize}
+    \item \textbf{ASSUMP-01} - Fibre samples are delivered dry and free-flowing, having already been processed through a textile milling system.
+    \item \textbf{ASSUMP-02 }- Samples may contain heterogeneous mixtures of fibre types, colours, and fineness typical of post-consumer textile waste.
+    \item \textbf{ASSUMP-03} - The primary measurement objective is geometric characterisation (size and morphology).
+    \item \textbf{ASSUMP-04} - The system will operate in a standard indoor industrial environment with stable ambient temperature and non-condensing humidity.
+    \item \textbf{ASSUMP-05} - The system will be operated by trained industrial users (e.g. engineers or researchers), not by untrained members of the public.
+    \item \textbf{ASSUMP-06} - Statistical relevance is achieved through sampling and aggregation of many fibres rather than complete measurement of every fibre in a batch.
+    \item \textbf{ASSUMP-07} - Image analysis may use deterministic algorithms and/or AI-based approaches, but final outputs must remain interpretable and traceable.
+    \item \textbf{ASSUMP-08} – Typical plants process approximately 90 kg/min virgin wood fibre input. Substituting approximately 30\% (Fab Materials estimate) of this stream leads to a system throughput of approximately 27 kg/min.
+\end{itemize}
+
+\section{System Requirements}
+
+\subsection{Definitions}
+
+\begin{itemize}
+    \item \textbf{Batch:} A total mass of textile that must be characterized.
+    \item \textbf{Sample:} Taken from a batch. Samples are analyzed for size characterization.
+\end{itemize}
+
+\subsection{High Level System Requirements}
+
+\begin{itemize}
+    \item \textbf{}\textbf{SYS-FUNC-01}- The system shall accept and process non-homogeneous (mixed composition) textile batches. 
+    \item \textbf{SYS-FUNC-02}- The system shall obtain representative samples from textile batches. 
+    \item \textbf{SYS-FUNC-03}- The system shall make fibre size distribution data for analysed samples available to the user. 
+    \item \textbf{SYS-FUNC-04}- The system shall make modelled board output characteristics (using the current sample) available to the user. 
+    \item \textbf{SYS-FUNC-05}- The system shall produce consistent results when analyzing equivalent samples, with a coefficient of variation <5\%. 
+    \item \textbf{SYS-FUNC-06}- The system shall maintain traceability between batches, samples, and analysis results. 
+    \item \textbf{SYS-FUNC-07}- The system shall characterise fibre samples at a throughput of at least 27 kg/min. 
+    \item \textbf{SYS-FUNC-08}- The system shall be constructed with components with a total cost not exceeding £5,000 [5k is variable]. 
+\end{itemize}
+
+\subsection{Measurement \& Performance Requirements}
+
+\begin{itemize}
+    \item \textbf{SYS-PERF-01}- The system shall measure individual fibres within a length range of approximately 1 mm to 10 mm and a width range of 0.05 mm to 0.2 mm.
+
+    \item \textbf{SYS-PERF-02}- The system shall estimate fibre length with a systematic error of less than $\pm$5\% for fibres within the nominal measurement range.
+
+    \item \textbf{SYS-PERF-03}- The system shall estimate fibre width (or equivalent diameter proxy) with a systematic error not exceeding $\pm$15\%.
+
+    \item \textbf{SYS-PERF-04}- For repeated measurements of the same sample, the coefficient of variation (CV) of mean fibre dimensions shall not exceed 5\%.
+
+    \item \textbf{SYS-PERF-06}- The system shall maintain calibration drift within $\pm$5\% over a standard laboratory operating week without recalibration.
+\end{itemize}
+
+\subsection{Operational \& Throughput Requirements}
+
+\begin{itemize}
+    \item \textbf{SYS-OPER-01}- The system shall operate for a full industrial working period without unscheduled maintenance.
+    \item \textbf{SYS-OPER-02}- The system shall allow safe interruption and restart of measurements without data corruption.
+\end{itemize}
+
+\subsection{Data \& AI Requirements}
+
+\begin{itemize}
+    \item \textbf{SYS-DATA-01}- The system shall keep a cache of recent measurements to defend against interruption.
+    \item \textbf{SYS-DATA-02}- The system shall protect stored data from unintended modification.
+    \item \textbf{SYS-DATA-03}- If AI-based models are used, the system shall maintain model version traceability.
+    \item \textbf{SYS-DATA-04}- The system shall provide user access control appropriate to industrial usage.
+\end{itemize}
+
+\subsection{Human--Machine Interface Requirements}
+
+\begin{itemize}
+    \item \textbf{SYS-HMI-01}- The system shall clearly indicate operational state (idle, running, fault, calibration).
+    \item \textbf{SYS-HMI-02}- The system shall provide clear software error messages and recommended operator actions.
+\end{itemize}
+
+\subsection{Physical \& Environmental Requirements}
+
+\begin{itemize}
+    \item \textbf{SYS-PHYS-01}- The system shall operate in standard indoor industrial conditions.
+    \item \textbf{SYS-PHYS-02}- The system shall have dimensions and mass compatible with typical industrial handling.
+    \item \textbf{SYS-PHYS-03}- The system shall control or shield the imaging region from uncontrolled ambient light.
+    \item \textbf{SYS-PHYS-04}- The system shall include provisions to manage fibre dust accumulation within the enclosure.
+    \item \textbf{SYS-PHYS-05}- The system shall limit noise and vibration to acceptable levels (threshold to be specified) so imaging is not degraded.
+
+\end{itemize}
+
+\subsection{Safety Requirements}
+
+\begin{itemize}
+    \item \textbf{SYS-SAFE-01}- The system shall prevent operator access to hazardous moving parts during operation.
+    \item \textbf{SYS-SAFE-02}- The system shall shield users from high-intensity illumination sources where applicable.
+    \item \textbf{SYS-SAFE-03}- The system shall include an emergency stop function where moving mechanisms are present.
+    \item \textbf{SYS-SAFE-04}- The system shall comply with applicable electrical and laboratory equipment safety standards.
+    \item \textbf{SYS-SAFE-05}- The system shall control airborne fibre release at all stages via enclosure and/or extraction provisions.  
+    \item \textbf{SYS-SAFE-06}- The system shall provide a documented PPE requirement and safe operating procedure 
+\end{itemize}
+
+\subsection{Reliability, Maintainability \& Lifecycle}
+
+\begin{itemize}
+    \item \textbf{SYS-RAM-01}- The system shall be designed for reliable operation under normal industrial usage.
+    \item \textbf{SYS-RAM-02}- The system shall allow routine cleaning and maintenance using standard tools.
+    \item \textbf{SYS-RAM-03}- The system shall log operational and diagnostic information for fault investigation.
+    \item \textbf{SYS-RAM-04}- The system shall allow recalibration using defined procedures.
+    \item \textbf{SYS-RAM-05}- The system shall be designed to allow future upgrade of analysis algorithms without full hardware redesign.
+    \item \textbf{SYS-RAM-06}- The system shall detect and flag conditions that invalidate results (e.g., calibration drift, poor illumination, excessive overlap)  
+\end{itemize}
+
+\end{document}

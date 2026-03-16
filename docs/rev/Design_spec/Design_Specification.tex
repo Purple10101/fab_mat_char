@@ -1,0 +1,186 @@
+\documentclass[a4paper, 12pt, english]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{babel}
+
+% Use Garamond font
+\usepackage{ebgaramond}
+\usepackage{float}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{subfig}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{matlab-prettifier}
+\usepackage{indentfirst}
+\usepackage{verbatim}
+\usepackage{textcomp}
+\usepackage{gensymb}
+
+\usepackage{relsize}
+
+\usepackage{lipsum}
+\usepackage{xcolor}
+\usepackage{xparse}
+\NewDocumentCommand{\myrule}{O{1pt} O{2pt} O{black}}{%
+  \par\nobreak % don't break a page here
+  \kern\the\prevdepth % don't take into account the depth of the preceding line
+  \kern#2 % space before the rule
+  {\color{#3}\hrule height #1 width\hsize} % the rule
+  \kern#2 % space after the rule
+  \nointerlineskip % no additional space after the rule
+}
+\usepackage[section]{placeins}
+
+\usepackage{booktabs}
+\usepackage{colortbl}%
+   \newcommand{\myrowcolour}{\rowcolor[gray]{0.925}}
+   
+\usepackage[obeyspaces]{url}
+\usepackage{etoolbox}
+\usepackage[colorlinks=true, linkcolor=black]{hyperref}
+
+\usepackage{geometry}
+\geometry{
+    paper=a4paper, % Change to letterpaper for US letter
+    inner=1.8cm, % Inner margin
+    outer=1.8cm, % Outer margin
+    bindingoffset=.5cm, % Binding offset
+    top=1.8cm, % Top margin
+    bottom=1.8cm, % Bottom margin
+    %showframe, % Uncomment to show how the type block is set on the page
+}
+%*******************************************************************************%
+%************************************START**************************************%
+%*******************************************************************************%
+\begin{document}
+
+\begin{titlepage}
+\begin{center}
+\par
+\vfill
+\vspace{500pt}
+\includegraphics[width=0.65\textwidth]{figs/bath22.png}
+
+\vspace{70pt}
+\textbf{\LARGE  MESO FIBRE PARTICLE SIZE CHARACTERISATION}\\
+\vspace{10pt}
+\textbf{\large Design Specification}\\
+\vspace{30pt}
+\begin{table}[H]
+  \centering
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{@{}llllp{6.5cm}@{}}
+    \toprule
+    \textbf{Version} & \textbf{Date} & \textbf{Author} & \textbf{Reviewed By} & \textbf{Change Summary} \\
+    \midrule
+    0.1 & 2026-03-11 & Joshua Poole & Van Kaliafetis & Introduction and system overview completed. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\par
+\vfill
+\vspace{275pt}
+
+\par
+\vfill
+\end{center}
+
+\end{titlepage}
+
+\newpage
+
+\tableofcontents
+\newpage
+
+\setcounter{tocdepth}{2}
+
+\section{Introduction}
+
+This document presents the design specification for the fibre characterisation system. It describes the overall system architecture, the design of the major subsystems, the interfaces between subsystems, and the technical decisions made during system development. The specification focuses on how the system will be implemented to satisfy the previously defined system requirements while maintaining measurement accuracy, reproducibility, and practical feasibility within a industrial-scale environment.
+\\
+The proposed system performs automated fibre characterisation through a multi-stage pipeline consisting of fibre disruption, sample preparation, calibrated optical imaging, image processing, and statistical data reporting. High-resolution images of prepared fibre samples are captured under controlled illumination and analysed using image-processing algorithms to extract fibre geometric properties (length, width). The resulting statistical distributions are then used to predict fibre suitability and blend requirements.
+
+\section{System Overview}
+
+The system processes fibres through a sequential pipeline consisting of fibre disruption, sample preparation, calibrated imaging, image processing, and modeling. Textile material is first mechanically dispersed before being presented as a controlled sample layer to minimise overlap and ensure reliable optical measurement. The prepared sample is then imaged using a calibrated optical imaging subsystem operating under controlled illumination conditions. The imaging stage captures high-resolution images of fibres with a known spatial scale, allowing dimensional measurements to be derived from the resulting image data.
+
+Captured images and metadata are passed to the image analysis subsystem where image-processing algorithms are used to segment individual fibres and extract geometric features. These measurements are aggregated to produce statistical descriptors of the fibre population within the analysed sample. The resulting datasets provide information such as fibre aspect ratio statistics, which can be used to evaluate fibre suitability and variability.
+
+The system is designed to operate on representative fibre samples rather than the full mass flow of material. Statistical sampling enables large fibre populations to be characterised efficiently while maintaining laboratory-scale operational requirements. By combining controlled optical imaging with automated analysis, the system provides a repeatable and scalable method for fibre characterisation suitable for research and development environments.
+
+\section{System Architecture}
+
+The fibre characterisation system is implemented as a modular architecture composed of multiple interacting subsystems. Each subsystem performs a distinct function within the measurement pipeline and communicates with adjacent subsystems through defined mechanical, electrical, and data interfaces. This modular structure allows individual subsystems to be developed, tested, and improved independently while maintaining overall system functionality.
+
+The system architecture follows a sequential measurement process that transforms raw fibre material into quantitative statistical descriptors. Fibre material is first sorted and conditioned to ensure suitable samples for measurement. These samples are then prepared and presented within a controlled imaging region where calibrated optical imaging is performed. The resulting image data is processed using image analysis algorithms to extract fibre geometric properties, which are subsequently aggregated to generate statistical distributions describing the fibre population.
+
+Separating physical handling, optical measurement, and computational analysis into distinct subsystems improves system maintainability, facilitates subsystem-level validation, and allows future upgrades to individual components without requiring redesign of the entire system.
+
+The overall system architecture is illustrated in Figure \ref{fig:sys_lvl_flow}. The diagram shows the relationship between the five primary subsystems and the flow of material and data through the fibre characterisation pipeline.
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{flow_system_level.png}
+    \caption{High-level dataflow for the system.}
+    \label{fig:sys_lvl_flow}
+\end{figure}
+
+\subsection{Subsystem Overview}
+
+The fibre characterisation system consists of five primary subsystems which together implement the measurement and analysis pipeline. 
+
+\subsubsection{Sorting System}
+
+The sorting system receives the incoming fibre material and separates it into controlled streams suitable for measurement. This stage helps reduce the effects of large fibre clusters or contaminants and ensures that representative fibre samples are supplied to the downstream measurement stages.
+
+\subsubsection{Sample Preparation System}
+
+The sample preparation system arranges fibres in a configuration suitable for optical measurement. Fibres are distributed into a thin layer with minimal overlap and positioned within the imaging region. Proper preparation ensures that fibres remain within the optical depth of field and that individual fibres can be reliably segmented during image analysis.
+
+\subsubsection{Imaging System}
+
+The imaging system captures calibrated high-resolution images of the prepared fibre samples under controlled illumination conditions. It converts optical information into digital image data with a known spatial calibration, enabling dimensional measurement of fibre geometry.
+
+\subsubsection{Image Analysis System
+}
+The image analysis system processes the captured images to identify individual fibres and extract geometric measurements. Image-processing algorithms are used to segment fibres from the background and compute parameters such as fibre length, width proxy, orientation, and curvature.
+
+\subsubsection{Modeling System}
+
+The mass distribution system aggregates the measurements obtained from the image analysis subsystem and generates statistical distributions describing the fibre population within the analysed sample. These outputs include distributions of fibre dimensions and morphological characteristics, which provide quantitative insight into fibre variability and material suitability.
+
+\section{Subsystems Design Specification}
+
+Make sure to cover your sub-systems interfaces in a subsubsubsection{}
+
+\subsection{Sorting System}
+
+\subsection{Sample Preparation System}
+
+\subsection{Imaging System}
+
+The imaging subsystem performs calibrated optical acquisition of fibre samples and represents the primary measurement component of the system. Its purpose is to convert optical information from prepared fibre samples into digital images with sufficient spatial resolution and contrast to enable reliable dimensional measurement.
+
+The subsystem consists of a machine-vision camera, optical lens system, controlled illumination, and associated acquisition electronics. A high-resolution industrial area-scan camera is used to capture images of the prepared fibre population. The selected sensor class provides approximately five megapixels of resolution with a global shutter architecture, ensuring distortion-free image capture even under short exposure conditions.
+
+The optical configuration is designed to provide sufficient spatial sampling of the smallest measurable fibre width. The minimum fibre width of interest is approximately 0.05 mm, and the imaging system is designed to represent this feature with at least three pixels across the fibre diameter. This requirement results in a target object-space sampling of approximately 12–17 µm per pixel, enabling reliable dimensional measurement while maintaining a sufficiently large field of view.
+
+A low-magnification optical configuration is used to achieve this sampling requirement while capturing a large imaging area. For a representative five-megapixel sensor with 3.45 µm pixel pitch, the resulting field of view is approximately 41 mm by 34 mm. This imaging area allows a statistically meaningful number of fibres to be captured within each image frame, improving measurement throughput and statistical reliability.
+
+Controlled illumination is used to ensure consistent image contrast and segmentation performance. Diffuse backlighting or coaxial illumination may be employed to create high-contrast silhouettes of fibres against the background. Uniform illumination across the imaging field is essential to avoid segmentation bias and ensure consistent measurement accuracy.
+
+The imaging subsystem outputs calibrated digital images containing embedded metadata such as magnification, calibration factor, exposure parameters, and acquisition timestamps. These images are transmitted to the image analysis subsystem for further processing and feature extraction.
+
+\subsection{Image Analysis System}
+
+\subsection{Mass Distribution System}
+
+\section{Validation Strategy}
+
+\section{Future Improvements}
+
+
+\end{document}
