@@ -1,0 +1,464 @@
+% =====================================================================
+% Software Development Plan (SDP) Template — Image Analysis Sub-System
+% ME32031 — Individual Technical Report Appendix/Section
+% Author: <Your Name>
+% Date: <YYYY-MM-DD>
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+% --------------------- Packages ---------------------
+\usepackage[a4paper,margin=25mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\usepackage{listings}
+\usepackage{enumitem}
+\setlist[itemize]{leftmargin=*,noitemsep,topsep=2pt}
+\setlist[enumerate]{leftmargin=*,noitemsep,topsep=2pt}
+
+% --------------------- Hyperref ---------------------
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue,
+  citecolor=black
+}
+
+% --------------------- Listings ---------------------
+\lstset{
+  basicstyle=\ttfamily\small,
+  frame=single,
+  breaklines=true,
+  columns=fullflexible
+}
+
+% --------------------- Helpers ---------------------
+\newcommand{\docTitle}{Software Development Plan (SDP)}
+\newcommand{\subsystemName}{Image Analysis Sub-System}
+\newcommand{\projectName}{ME32031 Group Design \& Business Project}
+\newcommand{\docVersion}{0.1}
+\newcommand{\docAuthor}{<Your Name>}
+\newcommand{\docDate}{<YYYY-MM-DD>}
+
+\begin{document}
+
+% ===================== Title Page =====================
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+
+  {\Large \projectName \par}
+  \vspace{1.5cm}
+
+  {\Huge \docTitle \par}
+  \vspace{0.5cm}
+  {\LARGE \subsystemName \par}
+
+  \vspace{2cm}
+
+  \begin{tabular}{@{}ll@{}}
+    \textbf{Author: Joshua Poole}\\
+    \textbf{Version: 0.1}\\
+    \textbf{Date: \today}\\
+  \end{tabular}
+
+  \vfill
+  \begin{flushleft}
+  \textbf{Confidentiality:} Internal / Academic Submission \\
+  \textbf{Related system:} Fibre sample characterisation pipeline \\
+  \end{flushleft}
+
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ===================== 1 Document Control =====================
+
+\section{Revision History}
+\begin{table}[H]
+  \centering
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabular}{@{}llllp{6.5cm}@{}}
+    \toprule
+    \textbf{Version} & \textbf{Date} & \textbf{Author} & \textbf{Reviewer} & \textbf{Change Summary} \\
+    \midrule
+    0.1 & 20260316 & Joshua Poole & Van Kaliafetis & Part I complete and ready for review. \\
+    \bottomrule
+  \end{tabular}
+\end{table}S
+
+% ===================== 2 Purpose and Scope =====================
+\section{Purpose and Scope}
+
+\subsection{Purpose}
+The purpose of this Software Development Plan (SDP) is to formally define the processes, controls, and artefacts governing the development of the \subsystemName. This document establishes a structured framework through which system-level requirements are decomposed into verifiable software requirements, architectural elements, and implementation components.
+
+This SDP ensures that all design decisions are explicitly justified, traceable to originating requirements, and supported by documented technical rationale. It defines the mechanisms by which design integrity, configuration control, and validation activities are managed throughout the software lifecycle.
+
+Furthermore, this document provides sufficient detail to enable competent engineering personnel to reproduce, maintain, or extend the system in a controlled and auditable manner. By linking requirements, design artefacts, implementation outputs, and verification evidence, the SDP ensures full lifecycle traceability and controlled scope management in accordance with professional engineering standards.
+
+\subsection{Scope}
+
+\textbf{In scope:}
+Processing of scan/image input into fibre/particle size distribution outputs.
+
+\textbf{Out of scope:}
+Modeling output characteristics affecting a sample's inclusion in a final MDF board
+
+\subsection{Definitions and Acronyms}
+\begin{table}[H]
+  \centering
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabularx}{\textwidth}{@{}lX@{}}
+    \toprule
+    \textbf{Term} & \textbf{Definition} \\
+    \midrule
+    Batch & A total mass of textile requiring characterisation. \\
+    Sample & A representative portion of a batch analysed by the system. \\
+    PSD & Particle/Fibre Size Distribution output (e.g., histogram, CDF, fitted model). \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+% ===================== 3 Applicable Documents and Standards =====================
+\section{Applicable Documents and Standards}
+
+\subsection{Applicable Documents}
+\begin{itemize}
+  \item System-level Design Specification (PRS): <Doc ID / link>
+\end{itemize}
+
+\subsection{Standards and Guidelines}
+List any relevant standards/guides used as reference points.
+\begin{itemize}
+  \item ISO/IEC/IEEE 12207 (Software lifecycle processes) — reference context.
+  \item Internal coding standard: PEP8.
+\end{itemize}
+
+
+
+
+\part{Requirements and Solution Selection}
+
+% ===================== 4 System Overview =====================
+\section{System Overview}
+
+\subsection{System Context}
+The Meso Fibre Particle Size Characterisation system makes a stardardised sample of textiles available for image analysis in a PNG format.\\
+The Image Analysis Sub-system must be capable of taking as input a set of images related to a sample of textile fibres, as well as a collection of metadata associated with the capture of said image. The system must produce the following quantitative information to be available at its output interface:
+\begin{enumerate}
+    \item insert all the required quantitative outputs (need clarification from tommi)
+\end{enumerate}
+
+\subsection{System Deployment Strategy}
+\label{subsec:deployment_strategy}
+Interfaces between software-based components will be implemented as internal software interfaces, as all system software is deployed on the same Linux machine. Communication between modules therefore occurs locally within the host environment.
+
+The software detailed in this plan will be deployed on an internal Linux machine, with system outputs made available to the user through an external API.
+
+
+\subsection{High-Level Functional Description}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{sdp_res/flow_system_level.png}
+    \caption{High-level dataflow for the system.}
+    \label{fig:sys_lvl_flow}
+\end{figure}
+
+Figure \ref{fig:sys_lvl_flow} shows the architecture at the system-level. This SDP regards sub-system 4 where the quantitative analysis of the sample is performed. The data flow is illustrated through this figure and from this a set of interfaces and dependecies can be derived.
+
+\subsection{Interfaces and Dependencies}
+\label{subsec:inter_and_deps}
+\begin{table}[H]
+  \centering
+  \renewcommand{\arraystretch}{1.2}
+  \begin{tabularx}{\textwidth}{@{}p{4cm}p{8cm}p{3cm}@{}}
+    \toprule
+    \textbf{Interface} & \textbf{Input / Output} & \textbf{Owner} \\
+    \midrule
+    Capture Module & Input: Image frames and calibration metadata & Van Kaliafetis \\ \midrule
+    Mechanical Property Modeling Module & Output: [insert specific data here] & Tommi Nebuloni \\ \midrule
+    Reporting & Output: [insert specific data here] & User \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsubsection{Capture Interface}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{sdp_res/van_interface.png}
+    \caption{Capture interface components.}
+    \label{fig:van_int}
+\end{figure}
+
+The capture interface makes up the input for the Image Analysis Sub-system and forward communicates two datatypes.
+
+\begin{itemize}
+  \item Image frames - Images of the sample obtained by the capture module. One image is a raw [insert resolution here] PNG image and the other is an upscale version of the same image. Both images must be used for the quantitative analysis and results aggregated to achieve a robust output. [\textcolor{red}{subject to change JOSH}]
+  \item Calibration Metadata - A collection of data describing the conditions of image capture that will be used to convert from the pixel domain into the real world measurement domain. This also contains flags that will inform the Image Analysis Sub-system of any problems identified with the capture. [you need to provide more info about data format and what flags are present]
+\end{itemize}
+
+Because the two systems operate asynchronously, the Image Analysis Sub-system exposes a ready signal via a message queue through the Capture Interface indicating when it is able to accept a new image from the Image Capture Sub-system. Both systems accessing this interface are deployed on the same machine so no physical interface design is required.
+
+\subsubsection{Mechanical Property Modeling Interface}
+
+\subsubsection{Reporting Interface}
+The developer must consider the security of this interface. Besides this, the reporting interface is without constraint.
+
+% ============================================================
+\section{Requirements Derivation and Allocation}
+% ============================================================
+
+\subsection{System-Level Requirements Overview}
+
+The Meso Fibre Particle Size Characterisation system requirements are detailed in the Design Specification, a link to which can be found in Section 3.1. For traceability of derived sub-system and module level requirements an extract of this document is shown below:
+
+\begin{longtable}{@{}p{1cm}p{7cm}p{7cm}@{}}
+\toprule
+\textbf{ID} & \textbf{System Requirement} & \textbf{Rationale} \\
+\midrule
+\endhead
+
+R1 & The system shall accept and process heterogeneous (mixed composition) textile batches.
+& Enables analysis of real-world recycled textile feedstock. \\ \midrule
+
+R2 & The system shall make fibre size distribution data for analysed samples available to the user.
+& Provides key quantitative characterisation data. \\ \midrule
+
+R3 & The system shall make modelled board output characteristics (using the current sample) available to the user.
+& Enables prediction of MDF performance from analysed fibres. \\ \midrule
+
+R4 & The system shall produce consistent results when analysing equivalent samples with a coefficient of variation below 5\%.
+& Ensures measurement repeatability and reliability. \\ \midrule
+
+R5 & The system shall maintain traceability between batches, samples, and analysis results.
+& Enables quality control and auditability of results. \\ \midrule
+
+R6 & The system shall operate at a minimum flow rate of [insert rate here].
+& Ensures compatibility with industrial throughput requirements. \\ \midrule
+
+R7 & The system shall be constructed using components with a total cost not exceeding £5,000.
+& Maintains commercial feasibility of the solution. \\
+
+\bottomrule
+\end{longtable}
+
+These requirements form the governing constraints for system design and are decomposed in accordance with functional responsibility and interface boundaries.
+
+\subsection{Requirement Decomposition Methodology}
+
+Sub-system requirements are derived using structured functional decomposition, interface analysis, and data-flow allocation. Each derived requirement is:
+
+\begin{itemize}
+    \item Traceable to at least one system-level requirement.
+    \item Expressed in measurable and verifiable terms.
+    \item Allocated to a specific architectural element.
+\end{itemize}
+
+\subsection{Derived Sub-System Requirements}
+
+\begin{longtable}{@{}p{1cm}p{6cm}p{2cm}p{6cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Sub-System Requirement} & \textbf{Derived From} & \textbf{Rationale} \\
+\midrule
+\endhead
+SSR1 & The software shall accept calibrated image(s) and metadata as input. & R2, R3 & Enables measurement and PSD generation. \\ \midrule
+SSR2 & The software shall identify fibers present within the input data. & R2, R3 & Required for enabling measurement of fibres and therefore PSD. \\ \midrule
+SSR3 & The software shall determine size-related properties of detected fibers. & R2, R3 & Required for enabling PSD. This relies on the input interface making image capture calibration metadata public. \\ \midrule
+SSR4 & The software shall generate a size distribution describing the analyzed sample. & R2, R3 & Required to satisfy output requirement and interface. \\ \midrule
+SSR5 & The software shall make analysis results available to the client. & R2 & Required to satisfy output interface. \\ \midrule
+SSR6 & The software shall produce consistent outputs for identical inputs within a 2\% tolerance. & R4 & Supports repeatability requirement. \\ \midrule
+SSR7 & The software shall make analysis results available to the client. & R5 & Empowers user and enables performance verification. \\ \midrule
+SSR8 & The software shall perform analysis of a sample in less than [insert execution time here]. & R6 & Enables the system to satisfy minimun flow rate requirment. \\
+\bottomrule
+\end{longtable}
+
+% ============================================================
+\section{Integration Strategy and Integration Testing}
+% ============================================================
+
+\subsection{Interface Definition}
+
+The Image Analysis Sub-System interfaces with upstream and downstream
+components as described in Section \ref{subsec:inter_and_deps}. These
+interfaces are implemented as software interfaces within the host system
+and enable the transfer of image data, associated metadata, and analysis
+results between system components.
+
+Interfaces are defined to ensure consistent data exchange and modular
+integration within the overall architecture. The Image Analysis Sub-System
+receives calibrated image data and associated metadata from the Image
+Capture Sub-System via the input interface, and provides computed fibre
+characteristics and derived statistical descriptors to downstream components
+via the output interface.
+
+Results shall be made available to the client through a persistent local
+data service exposed over the local network. The implementation of this
+service is left to the developer, provided it satisfies the following
+constraints: analysis outputs must be persisted to disk such that results
+are retained across process restarts and system interruptions; results must
+be queryable by a client application without requiring direct access to
+internal process state; and the interface must return structured data in a
+machine-readable format over HTTP on the local network. No additional
+infrastructure beyond the processes already running on the host machine
+should be required.
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}p{2cm}p{2cm}p{6cm}p{5cm}@{}}
+\toprule
+\textbf{Test ID} & \textbf{Verifies} & \textbf{Method} & \textbf{Acceptance Criteria} \\
+\midrule
+IT-01 & SSR1 & Submit a valid calibrated image and metadata message to the input queue, then submit a message with metadata absent. & Valid message is consumed and assigned an analysis ID. Malformed message produces an error and initiates no analysis. \\ \midrule
+IT-02 & SSR2 & Submit a reference image with a known fibre count to the input queue. Repeat with a blank image. & Detected count is within acceptable tolerance of ground truth. Blank image returns zero detections. \\ \midrule
+IT-03 & SSR3 & Submit identical images with differing calibration scale factors. Retrieve per-fibre measurements for both analyses. & Dimensions scale proportionally with the calibration factor and fall within acceptable tolerance of ground truth values. \\ \midrule
+IT-04 & SSR4 & Following a completed analysis, inspect the output queue message and retrieve the same result via the REST endpoint. & Both pathways return an identical, well-formed PSD with binned distribution and descriptors (mean, std, D10, D50, D90). \\ \midrule
+IT-05 & SSR5 & Query the REST results endpoint for a completed analysis. Restart the FastAPI service and re-query the same endpoint. & HTTP 200 and identical JSON payload returned on both queries, confirming SQLite persistence. \\ \midrule
+IT-06 & SSR6 & Submit the same reference image five times. Record PSD descriptors from the output queue and REST endpoint for each run. & All descriptors agree within 2\% tolerance across all five runs on both output pathways. \\ \midrule
+IT-07 & SSR7 & Query the REST endpoint for a completed analysis. Submit two distinct samples and query each result independently. & Response includes analysis ID, sample identifier, image reference, and timestamp. No data from one analysis appears in the other. \\ \midrule
+IT-08 & SSR8 & Submit a standard sample to the input queue and record elapsed time from message placement to result on the output queue. Repeat five times. & All five runs complete within the specified maximum execution time. \\
+\bottomrule
+\end{tabular}
+\caption{Integration tests for the Image Analysis Sub-System.}
+\label{tab:integration_tests}
+\end{table}
+
+
+\part{Integration and Architecture}
+
+% ============================================================
+\section{Evaluation of Viable Software Solution Approaches}
+% ============================================================
+
+The following technically viable software solution approaches were evaluated:
+
+\begin{longtable}{@{}p{1cm}p{7cm}p{7cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Description} & \textbf{Rationale} \\
+\midrule
+\endhead
+S1 & Integrated ImageJ Automated Macro - Input images are passed into a third part software, ImageJ where the length, width and area of individually distinguishable fibers are  obtained and reported back to a master script for parsing. & Used industry standard third party tools to obtain quantitative information. Is able to compile information and report via common scripting languages like Python or C++. \\ \midrule
+
+S2 & Backlight Luminosity Measurement - Input images are assessed based on their luminosity which is used as a proxy for the size distribution of the sample. With this you can very quickly perform a simple batch assessment. & Very efficient and would enable high flow rate due to low processing requirement. Viable assuming batches are consistently composed by prior sub systems. \\ \midrule
+
+S3 & ML Fibre Separation - Input images are fed through a cascade of neural networks that first separate background from foreground, and the isolate individual particles/fibres. Each identified fibre can then be measure relative to the calibration metadata to obtain the distribution of sizes. & In-house solution independent of third party licenses that has the capability of reaching excellent performance given good training data. Performance is therefore scalable. Also enables update support as research improves. \\ \midrule
+
+S4 & REST API Layer Exposing Local Data - Output data local to the process is exposed to the client via a REST endpoint reading directly from in-memory shared process state, returning results as JSON over HTTP. Data is lost on restart or interruption. & Easy to implement and interface with from a client perspective. Compatible with deployment strategy. \\ \midrule
+
+S5 & Persistent Storage with REST API Layer - Output data is persisted to disk via an embedded database and exposed to the client through a REST endpoint returning JSON over HTTP on the local network.& Fairly easy to implement. Compatible with deployment strategy. Improved data integrity over S4; measurement data is retained across process restarts and system interruptions. \\
+
+\bottomrule
+\end{longtable}
+
+\subsection{Selected Approach and Justification}
+
+The ML Fibre Separation approach (S3) was selected as the preferred solution. In this approach, input images are processed using a cascade of neural networks, potentially leveraging pretrained architectures such as DeepLab with a ResNet backbone. The networks first separate foreground fibres from the background and then isolate individual fibres. Once separated, each fibre can be measured relative to the capture calibration metadata to obtain quantitative distributions of fibre length, width, and area.
+
+This approach provides several advantages over the Integrated ImageJ Automated Macro (S1). While S1 enables automated measurement through established third-party software, it introduces reliance on external tooling and licensing. In contrast, S3 enables the entire analysis pipeline to be developed and maintained in-house. This provides a significant commercial advantage by eliminating third-party dependencies and enabling full control over the software stack.
+
+Furthermore, the machine learning approach offers greater flexibility and scalability throughout the product life-cycle. Model performance can improve over time as additional training data becomes available, and updates can be deployed through software revisions without requiring changes to the underlying system architecture. This aligns well with the requirement for a modular and maintainable solution.
+
+The Backlight Luminosity Measurement approach (S2) was rejected due to its limited ability to generate detailed quantitative information about individual fibres. Although S2 offers high processing efficiency and could support high-throughput analysis, it only provides indirect estimates of fibre size distribution. As a result, it does not produce the level of measurement fidelity required to support reliable modelling of MDF mechanical performance.
+
+For these reasons, S3 was selected as the most suitable approach for the fibre measurement sub-system. It provides detailed quantitative characterisation, avoids third-party dependencies, and offers a scalable software architecture capable of improving performance over time.
+
+For client-facing data exposure, a persistent storage approach was selected over an in-memory shared state approach. Both approaches are compatible with the deployment strategy and can share the same client-facing interface. However, persisting results to disk provides a meaningful improvement in data integrity, ensuring that measurement data is retained across process restarts and system interruptions. Given that fibre size distribution measurements carry scientific and commercial value, an ephemeral in-memory implementation was deemed unsuitable for a production instrument context. A lightweight embedded database such as SQLite is recommended as a natural and low-cost means of achieving this persistence, as it requires no server process or external configuration beyond a schema definition, but developers are free to employ any persistence mechanism that satisfies the data integrity and client interface requirements.
+
+% ============================================================
+\section{Architectural Design and Module Allocation}
+% ============================================================
+
+\subsection{Architectural Derivation}
+
+The selected solution architecture adopts a modular pipeline structure to ensure separation of concerns and traceable requirement allocation.
+
+\subsection{Module Decomposition}
+
+\begin{itemize}
+    \item Capture Interface Module
+    \item Pre-Processing Module
+    \item Segmentation Module
+    \item Feature Extraction Module
+    \item Distribution Engine
+    \item Export and Traceability Module
+\end{itemize}
+
+
+% ============================================================
+\section{Module-Level Requirements}
+% ============================================================
+
+each defined module must have its own set of reqs that link to the sus-system reqs.
+Those sub-system reqs link to system-level reqs so there is a full mapping!
+
+\subsection{Segmentation Module Requirements}
+
+\begin{itemize}
+    \item MLR-SEG-01 – The module shall produce a binary mask identifying fibre instances.
+    \item MLR-SEG-02 – The module shall generate repeatable output for identical input images.
+\end{itemize}
+
+\subsection{Distribution Engine Requirements}
+
+\begin{itemize}
+    \item MLR-DIST-01 – The module shall compute histogram-based size distributions.
+    \item MLR-DIST-02 – The module shall calculate statistical descriptors (mean, variance, quantiles).
+\end{itemize}
+
+
+
+\part{Detailed Design and Verification}
+
+% ============================================================
+\section{Detailed Module Design and Verification}
+% ============================================================
+
+\subsection{Algorithms and Data}
+
+Each module design defines:
+
+\begin{itemize}
+    \item Functional responsibilities
+    \item Algorithm selection
+    \item Data structures
+    \item Error handling behaviour
+\end{itemize}
+
+\subsection{Module Interfaces}
+
+\subsection{Module-Level Verification Plan}
+
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{}p{2.5cm}p{3cm}p{4cm}p{3cm}@{}}
+\toprule
+\textbf{Test ID} & \textbf{Module} & \textbf{Verifies} & \textbf{Acceptance Criteria} \\
+\midrule
+UT-SEG-01 &  &  &  \\
+UT-SEG-02 &  &  &  \\
+UT-DIST-01 &  &  &  \\
+UT-DIST-02 &  &  &  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
