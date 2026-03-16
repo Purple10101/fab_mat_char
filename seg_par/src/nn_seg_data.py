@@ -66,7 +66,6 @@ def seg_rgb_to_instance_ids(seg_rgb: np.ndarray) -> np.ndarray:
 
     return inst
 
-
 def instance_to_fg_boundary(inst: np.ndarray):
     """
     inst: [H,W] int32 with 0 background.
@@ -87,13 +86,11 @@ def instance_to_fg_boundary(inst: np.ndarray):
 
     return fg, boundary
 
-
 def _gaussian_2d(h: int, w: int, cx: float, cy: float, sigma: float) -> np.ndarray:
     """Paint a gaussian peak centered at (cx, cy)."""
     yy, xx = np.mgrid[0:h, 0:w]
     g = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
     return g
-
 
 def idmap_to_targets(id_map: np.ndarray, sigma: float = 3.0):
     """
@@ -176,6 +173,41 @@ class PSegDataset:
         self.train_ds = TorchSegDataset(self.train)
         self.val_ds = TorchSegDataset(self.val)
 
+    def get_subset_torch_dataset(self, keys=None, n=None, split=None):
+        """
+        Returns a TorchSegDataset containing a subset of the dataset.
+
+        Args:
+            keys (list[str] | None): specific keys to fetch
+            n (int | None): randomly sample n examples
+            split (str | None): 'train' or 'val' to pull from split
+
+        Returns:
+            TorchSegDataset
+        """
+        import random
+
+        if split == "train":
+            source = self.train
+        elif split == "val":
+            source = self.val
+        else:
+            source = self.total_dataset
+
+        all_keys = list(source.keys())
+
+        if keys is not None:
+            selected_keys = keys
+        else:
+            if n is not None:
+                selected_keys = random.sample(all_keys, min(n, len(all_keys)))
+            else:
+                selected_keys = all_keys
+
+        subset_dict = {k: source[k] for k in selected_keys}
+
+        return TorchSegDataset(subset_dict)
+
     def _fetch_dataset(self):
         ret_val = {}
         for img_path in IMAGES_PATH.iterdir():
@@ -226,32 +258,66 @@ def build_deeplab_instance(num_out: int = 4):
 
 def main():
     import matplotlib.pyplot as plt
+    import numpy as np
 
     dataset = PSegDataset()
+    keys = list(dataset.total_dataset.keys())
 
-    # Display Example:
-    subject = next(iter(dataset.total_dataset.keys()))
-    img, seg = dataset.total_dataset[subject]
+    batch_size = 12
+    rows, cols = 4, 4  # 4x4 grid (we'll leave last 4 blank if needed)
 
-    print(f"Example subject: {subject}")
-    print(f"Segmap mode: {seg.mode}")  # should be RGB now
+    for batch_start in range(0, len(keys), batch_size):
+        batch_keys = keys[batch_start: batch_start + batch_size]
 
-    plt.figure()
-    plt.imshow(seg)
-    plt.title("Segmap (RGB)")
-    plt.axis("off")
-    plt.show()
+        fig, axes = plt.subplots(rows, cols, figsize=(12, 12))
+        axes = axes.flatten()
 
-    # also show derived id_map quickly
-    seg_np = np.array(seg, dtype=np.uint8)
-    id_map = seg_rgb_to_instance_ids(seg_np)
+        for i, key in enumerate(batch_keys):
+            img, seg = dataset.total_dataset[key]
 
-    plt.figure()
-    plt.imshow(id_map)
-    plt.title(f"Derived instance IDs (n={len(np.unique(id_map)) - 1})")
-    plt.axis("off")
-    plt.show()
+            seg_np = np.array(seg, dtype=np.uint8)
+            id_map = seg_rgb_to_instance_ids(seg_np)
+
+            axes[i].imshow(id_map)
+            axes[i].set_title(f"{key}\n(n={len(np.unique(id_map)) - 1})", fontsize=8)
+            axes[i].axis("off")
+
+        # Hide unused subplots (since 4x4=16 but we show 12)
+        for j in range(len(batch_keys), rows * cols):
+            axes[j].axis("off")
+
+        plt.tight_layout()
+        plt.show()
 
 
 if __name__ == "__main__":
+    """
+    Notable examples in dataset:
+    
+    Extra Interesting:
+    "34f4fb273d"
+    "59424b060a"
+    "62a54f335d"
+    
+    
+    Long and thin:
+    "08549eb98f"
+    "0e41d62d5d"
+    "2387be5eaf"
+    "2897b777fe"
+    "2bc87a8698"
+    "2bf4aa0195"
+    "2d6f268052"
+    "3f97a9e821"
+    "5f42a8d4a9"
+    "707120d0f5"
+    
+    Overlapping:
+    "208b16bbb7"
+    "40afb05b44"
+    
+    Other:
+    "2807b90ea9"
+    
+    """
     main()

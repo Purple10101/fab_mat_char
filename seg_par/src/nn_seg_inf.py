@@ -232,10 +232,31 @@ def get_particles_from_val(
 
 
 def main():
+
+    important_keys = [
+                        "34f4fb273d",
+                        "59424b060a",
+                        "62a54f335d",
+                        "08549eb98f",
+                        "0e41d62d5d",
+                        "2387be5eaf",
+                        "2897b777fe",
+                        "2bc87a8698",
+                        "2bf4aa0195",
+                        "2d6f268052",
+                        "3f97a9e821",
+                        "5f42a8d4a9",
+                        "707120d0f5",
+                        "208b16bbb7",
+                        "40afb05b44",
+                        "2807b90ea9",
+                      ]
+
     model = build_deeplab_instance(num_out=4).to(device)
     model.load_state_dict(torch.load("best_deeplab_instances.pt", map_location=device))
 
     dataset = PSegDataset()
+    val_dataset = dataset.get_subset_torch_dataset(important_keys)
     results = get_particles_from_val(
         model=model,
         val_dataset=dataset.val_ds,
@@ -243,7 +264,7 @@ def main():
     )
     for particle in results[0]["particles"]:
         show_particle(particle, results[0]["img_np"])
-    print()
+        print()
 
 if __name__ == '__main__':
     main()
