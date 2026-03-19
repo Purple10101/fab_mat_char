@@ -14,9 +14,9 @@ import random
 
 import matplotlib.pyplot as plt
 import numpy as np
-
-import numpy as np
-from scipy import ndimage as ndi  # <-- FIX: needed for binary_erosion
+from scipy import ndimage as ndi
+from scipy.ndimage import distance_transform_edt, binary_dilation
+from skimage.morphology import medial_axis
 
 import torch
 import torch.nn as nn
@@ -30,6 +30,7 @@ from torchvision.models.segmentation import deeplabv3_resnet50
 
 IMAGES_PATH = Path(__file__).resolve().parents[1] / "data" / "images"
 SEGMAPS_PATH = Path(__file__).resolve().parents[1] / "data" / "segmaps"
+CACHE_PATH   = Path(__file__).resolve().parent / "cache"
 
 
 @dataclass
@@ -69,6 +70,7 @@ def seg_rgb_to_instance_ids(seg_rgb: np.ndarray) -> np.ndarray:
 
     return inst
 
+
 def instance_to_fg_boundary(inst: np.ndarray):
     """
     inst: [H,W] int32 with 0 background.
@@ -89,19 +91,47 @@ def instance_to_fg_boundary(inst: np.ndarray):
 
     return fg, boundary
 
-def _gaussian_2d(h: int, w: int, cx: float, cy: float, sigma: float) -> np.ndarray:
-    """Paint a gaussian peak centered at (cx, cy)."""
-    yy, xx = np.mgrid[0:h, 0:w]
-    g = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
-    return g
 
-def idmap_to_targets(id_map: np.ndarray):
+def _instance_skeleton(mask: np.ndarray, dilate_px: int = 2) -> np.ndarray:
+    """
+    Compute a dilated medial axis skeleton for a single binary instance mask.
+
+    We use medial_axis over skeletonize because it produces cleaner, more
+    connected results on thin (2px) structures — skeletonize can fragment.
+
+    The skeleton is dilated slightly to give the model a more forgiving target;
+    on a 2px wide particle the skeleton is essentially the particle itself so
+    dilation is modest.
+
+    mask:      [H,W] bool or uint8, single instance
+    dilate_px: dilation radius in pixels
+    returns:   [H,W] uint8 {0,1}
+    """
+    skel = medial_axis(mask).astype(np.uint8)
+
+    if dilate_px > 0:
+        struct = np.ones((2 * dilate_px + 1, 2 * dilate_px + 1), dtype=bool)
+        skel = binary_dilation(skel, structure=struct).astype(np.uint8)
+
+    return skel
+
+
+def idmap_to_targets(id_map: np.ndarray, dilate_px: int = 2):
     """
     id_map: [H,W] int64, 0=background, 1..K instances
     returns:
       fg      [H,W] int64
-      center  [1,H,W] float32  (0..1)
-      offsets [2,H,W] float32  (dx, dy) towards instance centroid
+      center  [1,H,W] float32  — dilated skeleton heatmap {0,1}
+      offsets [2,H,W] float32  — (dx, dy) towards nearest skeleton pixel
+
+    Skeleton-based targets replace the previous Gaussian centroid approach.
+    For long thin particles (fibres), the medial axis is a far more natural
+    representative than a centroid — no foreground pixel is ever far from the
+    skeleton, keeping offset magnitudes small and the regression task tractable.
+
+    Performance note: distance_transform_edt is called once on the full
+    skeleton image rather than per-instance, which is significantly faster
+    for dense images with many particles.
     """
     if id_map.ndim != 2:
         raise ValueError(f"Expected id_map [H,W], got shape={id_map.shape}")
@@ -115,35 +145,50 @@ def idmap_to_targets(id_map: np.ndarray):
     ids = np.unique(id_map)
     ids = ids[ids != 0]
 
+    # build the full skeleton image across all instances first,
+    # then call distance_transform_edt once — much faster than per-instance
+    full_skel = np.zeros((h, w), dtype=np.uint8)
+
     for inst_id in ids:
-        ys, xs = np.where(id_map == inst_id)
-        if len(xs) < 5:
+        mask = (id_map == inst_id)
+        if mask.sum() < 5:
             continue
 
-        cx = float(xs.mean())
-        cy = float(ys.mean())
+        skel = _instance_skeleton(mask, dilate_px=dilate_px)
+        full_skel = np.maximum(full_skel, skel)
 
-        # scale sigma with instance size so elongated particles get a learnable
-        # heatmap peak — a fixed sigma of 3 is invisible for a 200px rod
-        area = len(xs)
-        sigma = max(3.0, 0.1 * np.sqrt(area))
+    # accumulate skeleton heatmap
+    center = full_skel.astype(np.float32)
 
-        g = _gaussian_2d(h, w, cx, cy, sigma).astype(np.float32)
-        center = np.maximum(center, g)
+    # single distance transform over the full skeleton —
+    # for each pixel, find coordinates of nearest skeleton pixel
+    _, nearest = distance_transform_edt(1 - full_skel, return_indices=True)
+    # nearest: [2,H,W] — nearest[0]=row, nearest[1]=col of closest skel px
 
-        # offsets: for pixels in this instance, vector points to center
-        offsets[0, ys, xs] = cx - xs
-        offsets[1, ys, xs] = cy - ys
+    # compute offsets only for foreground pixels
+    ys, xs = np.where(fg > 0)
+    nearest_y = nearest[0, ys, xs]
+    nearest_x = nearest[1, ys, xs]
+
+    offsets[0, ys, xs] = nearest_x - xs   # dx
+    offsets[1, ys, xs] = nearest_y - ys   # dy
 
     return fg, center[None, ...], offsets
 
 
 class TorchSegDataset(Dataset):
-    def __init__(self, data_dict, size=(256, 256), sigma=3.0):
+    def __init__(self, data_dict, size=(256, 256), dilate_px=2):
         self.keys = list(data_dict.keys())
         self.data = data_dict
         self.size = size
-        self.sigma = sigma
+        self.dilate_px = dilate_px
+
+        CACHE_PATH.mkdir(exist_ok=True)
+
+    def _cache_path(self, stem: str) -> Path:
+        # cache key encodes all parameters that affect the target computation
+        # so changing size or dilate_px automatically busts the cache
+        return CACHE_PATH / f"{stem}_{self.dilate_px}_{self.size[0]}x{self.size[1]}.npz"
 
     def __len__(self):
         return len(self.keys)
@@ -159,15 +204,25 @@ class TorchSegDataset(Dataset):
         # image -> tensor
         image_t = TF.to_tensor(image)  # [3,H,W], float32 0..1
 
-        # segmap (RGB) -> instance id map
-        seg_np = np.array(segmap, dtype=np.uint8)        # [H,W,3]
-        id_map = seg_rgb_to_instance_ids(seg_np).astype(np.int64)  # [H,W]
+        cache_file = self._cache_path(stem)
 
-        fg_np, center_np, offsets_np = idmap_to_targets(id_map)
+        if cache_file.exists():
+            # targets already computed — just load from disk
+            cached = np.load(cache_file)
+            fg_np      = cached["fg"]
+            center_np  = cached["center"]
+            offsets_np = cached["offsets"]
+        else:
+            # first time seeing this sample — compute and cache to disk
+            # so subsequent epochs just do a fast np.load
+            seg_np = np.array(segmap, dtype=np.uint8)
+            id_map = seg_rgb_to_instance_ids(seg_np).astype(np.int64)
+            fg_np, center_np, offsets_np = idmap_to_targets(id_map, dilate_px=self.dilate_px)
+            np.savez_compressed(cache_file, fg=fg_np, center=center_np, offsets=offsets_np)
 
-        fg = torch.from_numpy(fg_np).long()                 # [H,W]
-        center = torch.from_numpy(center_np).float()        # [1,H,W]
-        offsets = torch.from_numpy(offsets_np).float()      # [2,H,W]
+        fg      = torch.from_numpy(fg_np).long()
+        center  = torch.from_numpy(center_np).float()
+        offsets = torch.from_numpy(offsets_np).float()
 
         return image_t, {"fg": fg, "center": center, "offsets": offsets}
 
@@ -192,8 +247,6 @@ class PSegDataset:
         Returns:
             TorchSegDataset
         """
-        import random
-
         if split == "train":
             source = self.train
         elif split == "val":
@@ -254,7 +307,7 @@ def build_deeplab_instance(num_out: int = 4):
     """
     Outputs 4 channels:
       0: fg logits
-      1: center logits
+      1: center/skeleton logits
       2: offset dx (regression)
       3: offset dy (regression)
     """
@@ -264,9 +317,10 @@ def build_deeplab_instance(num_out: int = 4):
 
 
 def main():
-
-    dataset = PSegDataset()
-
+    # -------------------------------------------------------------------------
+    # Keys to visualise — swap notable_keys for any dict of {category: [keys]}
+    # or replace with e.g. {"All": list(dataset.total_dataset.keys())}
+    # -------------------------------------------------------------------------
     notable_keys = {
         "Extra Interesting": [
             "34f4fb273d",
@@ -294,27 +348,64 @@ def main():
         ],
     }
 
+    # -------------------------------------------------------------------------
+    # Plot settings — change skeleton_alpha to control overlay opacity (0..1)
+    # dilate_px must match what your dataset was built with
+    # -------------------------------------------------------------------------
+    skeleton_alpha = 0.6
+    dilate_px = 2
+
+    dataset = PSegDataset()
+
     for category, keys in notable_keys.items():
         n = len(keys)
         cols = min(n, 4)
         rows = (n + cols - 1) // cols
 
-        fig, axes = plt.subplots(rows, cols, figsize=(cols * 3, rows * 3))
+        # two panels per sample: instance id map | skeleton overlay
+        fig, axes = plt.subplots(rows * 2, cols, figsize=(cols * 3, rows * 6))
         fig.suptitle(category, fontsize=14, fontweight="bold")
-        axes = np.array(axes).flatten()
+        axes = np.array(axes).reshape(rows * 2, cols)
 
         for i, key in enumerate(keys):
+            row = (i // cols) * 2
+            col = i % cols
+
             img, seg = dataset.total_dataset[key]
-
             seg_np = np.array(seg, dtype=np.uint8)
-            id_map = seg_rgb_to_instance_ids(seg_np)
+            id_map = seg_rgb_to_instance_ids(seg_np).astype(np.int64)
 
-            axes[i].imshow(id_map)
-            axes[i].set_title(f"{key}\n(n={len(np.unique(id_map)) - 1})", fontsize=8)
-            axes[i].axis("off")
+            # compute full skeleton across all instances in this image
+            ids = np.unique(id_map)
+            ids = ids[ids != 0]
+            full_skel = np.zeros(id_map.shape, dtype=np.uint8)
+            for inst_id in ids:
+                mask = (id_map == inst_id)
+                if mask.sum() < 5:
+                    continue
+                full_skel = np.maximum(full_skel, _instance_skeleton(mask, dilate_px=dilate_px))
 
+            # panel 1: instance id map alone
+            axes[row, col].imshow(id_map, cmap="viridis")
+            axes[row, col].set_title(f"{key}\n(n={len(ids)})", fontsize=8)
+            axes[row, col].axis("off")
+
+            # panel 2: instance id map with skeleton overlaid
+            axes[row + 1, col].imshow(id_map, cmap="viridis")
+            axes[row + 1, col].imshow(
+                np.ma.masked_where(full_skel == 0, full_skel),  # only show skeleton pixels
+                cmap="autumn",
+                alpha=skeleton_alpha,
+            )
+            axes[row + 1, col].set_title(f"{key} + skeleton", fontsize=8)
+            axes[row + 1, col].axis("off")
+
+        # hide unused subplot pairs
         for j in range(len(keys), rows * cols):
-            axes[j].axis("off")
+            row = (j // cols) * 2
+            col = j % cols
+            axes[row, col].axis("off")
+            axes[row + 1, col].axis("off")
 
         plt.tight_layout()
         plt.show()

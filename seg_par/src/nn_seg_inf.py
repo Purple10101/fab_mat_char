@@ -12,41 +12,69 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from scipy import ndimage
+from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import label as nd_label
 
 from seg_par.src.nn_seg_data import PSegDataset, build_deeplab_instance
 from seg_par.src.prt_inst import (Particle, particles_from_instance_map, show_particle)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-x))
 
-def _find_center_peaks(center_prob: np.ndarray, fg_mask: np.ndarray | None,
-                       thresh: float, min_dist: int):
-    c = center_prob
-    if fg_mask is not None:
-        c = c * fg_mask.astype(c.dtype)
+def _extract_skeleton_segments(center_prob: np.ndarray, fg_mask: np.ndarray,
+                                thresh: float, min_segment_length: int = 5):
+    """
+    Threshold the predicted skeleton heatmap and label connected components.
+    Each connected component represents one predicted particle.
 
-    max_f = ndimage.maximum_filter(c, size=min_dist)
-    peaks = (c == max_f) & (c >= thresh)
+    We mask by fg_mask first to suppress spurious skeleton activations
+    outside the foreground region.
 
-    ys, xs = np.where(peaks)
-    if len(xs) == 0:
-        return []
+    min_segment_length maps naturally to minimum physical fibre length —
+    fragments shorter than this are discarded as noise.
 
-    conf = c[ys, xs]
-    order = np.argsort(-conf)
-    return list(zip(ys[order], xs[order]))
+    Returns:
+      seg_labels: [H,W] int32, 0=background, 1..N = skeleton segments
+      n_segments: int
+    """
+    # suppress skeleton predictions outside foreground
+    skel_mask = (center_prob >= thresh) & (fg_mask > 0)
 
-def _decode_instances(fg_mask: np.ndarray, centers_yx: list[tuple[int, int]],
-                      offsets: np.ndarray, max_dist: float):
+    # label connected components — each is a candidate particle skeleton
+    seg_labels, n_segments = nd_label(skel_mask)
+
+    # discard fragments shorter than min_segment_length
+    for seg_id in range(1, n_segments + 1):
+        if (seg_labels == seg_id).sum() < min_segment_length:
+            seg_labels[seg_labels == seg_id] = 0
+
+    # re-label compactly after filtering
+    seg_labels, n_segments = nd_label(seg_labels > 0)
+
+    return seg_labels.astype(np.int32), n_segments
+
+
+def _decode_instances_from_skeleton(fg_mask: np.ndarray, seg_labels: np.ndarray,
+                                     offsets: np.ndarray, max_dist: float = 12.0):
+    """
+    Assign each foreground pixel to a skeleton segment via offset voting.
+
+    Each fg pixel casts a vote by adding its predicted offset vector to its
+    position — the vote lands near the skeleton. We then find the nearest
+    skeleton pixel to that vote and inherit its segment label.
+
+    This replaces the centroid-based decode — rather than voting towards a
+    single point, pixels vote towards the nearest point on a skeleton line,
+    so long thin particles are handled naturally.
+
+    Returns:
+      labels: [H,W] int32, 0=background, 1..N = instance ids
+    """
     h, w = fg_mask.shape
     labels = np.zeros((h, w), dtype=np.int32)
-    if len(centers_yx) == 0:
-        return labels
 
-    centers = np.array([(y, x) for (y, x) in centers_yx], dtype=np.float32)
+    if seg_labels.max() == 0:
+        return labels
 
     ys, xs = np.where(fg_mask > 0)
     if len(xs) == 0:
@@ -55,16 +83,27 @@ def _decode_instances(fg_mask: np.ndarray, centers_yx: list[tuple[int, int]],
     dx = offsets[0, ys, xs]
     dy = offsets[1, ys, xs]
 
-    vote_y = ys.astype(np.float32) + dy
-    vote_x = xs.astype(np.float32) + dx
+    # where each pixel thinks the skeleton is
+    vote_x = np.clip(xs.astype(np.float32) + dx, 0, w - 1).astype(np.int32)
+    vote_y = np.clip(ys.astype(np.float32) + dy, 0, h - 1).astype(np.int32)
 
-    d2 = (vote_y[:, None] - centers[None, :, 0]) ** 2 + (vote_x[:, None] - centers[None, :, 1]) ** 2
-    nn = np.argmin(d2, axis=1)
-    nn_dist = np.sqrt(d2[np.arange(d2.shape[0]), nn])
+    # look up which skeleton segment the vote lands in
+    voted_labels = seg_labels[vote_y, vote_x]
 
-    keep = nn_dist <= max_dist
-    labels[ys[keep], xs[keep]] = (nn[keep] + 1).astype(np.int32)
+    # compute distance from vote to nearest skeleton pixel —
+    # votes that land too far from any skeleton are likely noise and discarded
+    skel_mask = (seg_labels > 0).astype(np.uint8)
+    _, nearest = distance_transform_edt(1 - skel_mask, return_indices=True)
+
+    nearest_skel_y = nearest[0, vote_y, vote_x]
+    nearest_skel_x = nearest[1, vote_y, vote_x]
+    dist = np.sqrt((vote_y - nearest_skel_y) ** 2 + (vote_x - nearest_skel_x) ** 2)
+
+    keep = (voted_labels > 0) & (dist <= max_dist)
+    labels[ys[keep], xs[keep]] = voted_labels[keep]
+
     return labels
+
 
 @torch.no_grad()
 def visualise_val_predictions(
@@ -74,8 +113,8 @@ def visualise_val_predictions(
     n=6,
     fg_thresh=0.5,
     center_thresh=0.3,
-    min_peak_dist=7,
-    max_assign_dist=40.0,
+    min_segment_length=5,
+    max_assign_dist=12.0,
     seed=0,
     show_centers=True,
 ):
@@ -90,8 +129,6 @@ def visualise_val_predictions(
     rng.shuffle(idxs)
     idxs = idxs[: min(n, len(idxs))]
 
-
-    # Base panels: Image, Pred FG, GT FG, Center, Pred Inst
     cols = 5
     rows = len(idxs)
 
@@ -107,19 +144,25 @@ def visualise_val_predictions(
         out = out_t[0].detach().cpu().numpy()
 
         # --- predicted fg ---
-        fg_logit = out[0]  # [H,W]
-        fg_prob = 1.0 / (1.0 + np.exp(-fg_logit))  # sigmoid
+        fg_logit = out[0]
+        fg_prob = 1.0 / (1.0 + np.exp(-fg_logit))
         pred_fg = (fg_prob > fg_thresh).astype(np.uint8)
 
-        # --- predicted centers ---
-        center_logit = out[1]  # [H,W]
+        # --- predicted skeleton heatmap ---
+        center_logit = out[1]
         center_prob = 1.0 / (1.0 + np.exp(-center_logit))
 
         # --- predicted offsets ---
         offsets = out[2:4]  # [2,H,W]
 
-        centers = _find_center_peaks(center_prob, fg_mask=pred_fg, thresh=center_thresh, min_dist=min_peak_dist)
-        pred_instances = _decode_instances(pred_fg, centers, offsets, max_dist=max_assign_dist)
+        # extract skeleton segments then assign fg pixels via offset voting
+        seg_labels, n_segs = _extract_skeleton_segments(
+            center_prob, pred_fg, thresh=center_thresh,
+            min_segment_length=min_segment_length
+        )
+        pred_instances = _decode_instances_from_skeleton(
+            pred_fg, seg_labels, offsets, max_dist=max_assign_dist
+        )
         n_inst = int(pred_instances.max())
 
         # --- GT ---
@@ -148,13 +191,15 @@ def visualise_val_predictions(
         ax.set_title("GT FG")
         ax.axis("off")
 
-        # Panel 4: center heatmap (+ peaks)
+        # Panel 4: predicted skeleton heatmap + segment overlay
         ax = axes[r, c]; c += 1
         ax.imshow(center_prob, cmap="gray", vmin=0, vmax=1)
-        if show_centers and len(centers) > 0:
-            cy, cx = zip(*centers)
-            ax.scatter(cx, cy, s=18)
-        ax.set_title(f"Center prob (peaks={len(centers)})")
+        if show_centers and n_segs > 0:
+            # overlay skeleton segment centroids
+            for seg_id in range(1, n_segs + 1):
+                ys, xs = np.where(seg_labels == seg_id)
+                ax.scatter(xs.mean(), ys.mean(), s=18)
+        ax.set_title(f"Skeleton prob (segs={n_segs})")
         ax.axis("off")
 
         # Panel 5: predicted instances
@@ -175,10 +220,9 @@ def get_particles_from_val(
         n=6,
         fg_thresh=0.5,
         center_thresh=0.3,
-        min_peak_dist=7,
-        max_assign_dist=40.0,
+        min_segment_length=5,
+        max_assign_dist=12.0,
         seed=0,
-        show_centers=True,
         min_area_px=5,
 ):
     model.eval()
@@ -202,20 +246,25 @@ def get_particles_from_val(
         fg_prob = 1.0 / (1.0 + np.exp(-fg_logit))
         pred_fg = (fg_prob > fg_thresh).astype(np.uint8)
 
-        # predicted centers
+        # predicted skeleton heatmap
         center_logit = out[1]
         center_prob = 1.0 / (1.0 + np.exp(-center_logit))
 
         # predicted offsets
         offsets = out[2:4]
 
-        centers = _find_center_peaks(center_prob, fg_mask=pred_fg, thresh=center_thresh, min_dist=min_peak_dist)
-        pred_instances = _decode_instances(pred_fg, centers, offsets, max_dist=max_assign_dist)
+        # extract skeleton segments then assign fg pixels via offset voting
+        seg_labels, n_segs = _extract_skeleton_segments(
+            center_prob, pred_fg, thresh=center_thresh,
+            min_segment_length=min_segment_length
+        )
+        pred_instances = _decode_instances_from_skeleton(
+            pred_fg, seg_labels, offsets, max_dist=max_assign_dist
+        )
 
         # image to numpy for crop
         img_np = img.permute(1, 2, 0).cpu().numpy()  # [H,W,3], float 0..1
 
-        # build particles list
         particles = particles_from_instance_map(img_np, pred_instances, min_area_px=min_area_px)
 
         results.append({
@@ -223,7 +272,8 @@ def get_particles_from_val(
             "img_np": img_np,
             "pred_fg": pred_fg,
             "center_prob": center_prob,
-            "centers_yx": centers,
+            "seg_labels": seg_labels,
+            "n_segs": n_segs,
             "pred_instances": pred_instances,
             "particles": particles,
         })
@@ -244,12 +294,13 @@ def main():
     val_dataset = dataset.get_subset_torch_dataset(notable_keys)
     results = get_particles_from_val(
         model=model,
-        val_dataset=val_dataset,
+        val_dataset=dataset.val_ds,
         device=device
     )
-    for particle in results[0]["particles"]:
-        show_particle(particle, results[0]["img_np"])
+    for particle in results[1]["particles"]:
+        show_particle(particle, results[1]["img_np"])
         print()
+
 
 if __name__ == '__main__':
     main()

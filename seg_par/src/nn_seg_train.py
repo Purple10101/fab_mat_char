@@ -11,35 +11,40 @@ training script
 import torch.optim as optim
 import torch
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 import torch.nn.functional as F
 
 from seg_par.src.nn_seg_data import PSegDataset, build_deeplab_instance
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def focal_loss(logits, targets, alpha=0.25, gamma=2.0):
-    # Standard BCE is hates how many background pixels we have for a thin particle,
-    # the Gaussian peak probably covers <1% of the image, so the model learns to
-    # ignore peaks and just predict zero everywhere.
+
+def focal_loss(logits, targets, alpha=0.25, gamma=3.0):
+    # Standard BCE is overwhelmed by background pixels — a 2px skeleton line
+    # covers a tiny fraction of a 256x256 image, so the model learns to
+    # ignore it and predict zero everywhere.
     # Focal loss down-weights easy well-classified pixels (confident background)
-    # and concentrates gradient on the hard ones (the heatmap peaks).
+    # and concentrates gradient on the hard ones (the skeleton pixels).
+    # gamma=3.0 rather than the typical 2.0 because the binary skeleton target
+    # is harder than a soft Gaussian — easy negatives dominate even more.
     bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
     p = torch.sigmoid(logits)
-    p_t = targets * p + (1 - targets) * (1 - p)
-    focal_weight = (1 - p_t) ** gamma
+    p_t = targets * p + (1 - targets) * (1 - p)  # model confidence in correct class
+    focal_weight = (1 - p_t) ** gamma             # -> 0 for easy, -> 1 for hard
     loss = alpha * focal_weight * bce
     return loss.mean()
+
 
 def instance_losses(out, batch, w_center=1.0, w_off=0.1):
     """
     out: [B,4,H,W] where
       out[:,0:1] = fg logits (binary)
-      out[:,1:2] = center logits (binary heatmap)
-      out[:,2:4] = offsets (dx, dy)
+      out[:,1:2] = skeleton logits (binary heatmap)
+      out[:,2:4] = offsets (dx, dy) towards nearest skeleton pixel
     batch: dict with fg [B,H,W], center [B,1,H,W], offsets [B,2,H,W]
     """
     fg_t = batch["fg"]                      # [B,H,W] long {0,1}
-    center_t = batch["center"]              # [B,1,H,W] float 0..1
+    center_t = batch["center"]              # [B,1,H,W] float {0,1} — binary skeleton
     offsets_t = batch["offsets"]            # [B,2,H,W] float
 
     fg_logits = out[:, 0:1]                 # [B,1,H,W]
@@ -51,20 +56,22 @@ def instance_losses(out, batch, w_center=1.0, w_off=0.1):
         fg_logits, fg_t.unsqueeze(1).float()
     )
 
+    # skeleton heatmap loss — focal rather than BCE because the binary skeleton
+    # covers a tiny fraction of pixels, overwhelming plain BCE with easy negatives
     loss_center = focal_loss(center_logits, center_t)
 
-    # offsets loss only where fg == 1
+    # offset loss only where fg == 1, upweighted by distance from skeleton —
+    # pixels far from the skeleton (ends of long particles) contribute more,
+    # preventing the model from ignoring hard far-flung pixels
     fg_mask = (fg_t == 1).unsqueeze(1).float()  # [B,1,H,W]
-    # weight each fg pixel by its distance from its instance centroid,
-    # so far-flung ends of long particles aren't drowned out by easy central pixels
     offset_magnitude = (offsets_t ** 2).sum(dim=1, keepdim=True).sqrt()  # [B,1,H,W]
     dist_weight = 1.0 + offset_magnitude / (offset_magnitude.max().clamp_min(1.0))
     dist_weight = dist_weight * fg_mask
 
     denom = dist_weight.sum().clamp_min(1.0)
     loss_off = (
-            F.smooth_l1_loss(offsets_pred * dist_weight, offsets_t * dist_weight, reduction="sum")
-            / denom
+        F.smooth_l1_loss(offsets_pred * dist_weight, offsets_t * dist_weight, reduction="sum")
+        / denom
     )
 
     total = loss_fg + w_center * loss_center + w_off * loss_off
@@ -74,11 +81,13 @@ def instance_losses(out, batch, w_center=1.0, w_off=0.1):
         "loss_off": loss_off.item(),
     }
 
+
 def train_epoch(model, loader, optimizer, device):
     model.train()
     total = 0.0
 
-    for imgs, targets in loader:
+    pbar = tqdm(loader, desc="Training", leave=False)
+    for imgs, targets in pbar:
         imgs = imgs.to(device)
         targets = {k: v.to(device) for k, v in targets.items()}
 
@@ -90,6 +99,9 @@ def train_epoch(model, loader, optimizer, device):
         optimizer.step()
 
         total += loss.item() * imgs.size(0)
+
+        # update the bar with current batch loss so you can see if its diverging
+        pbar.set_postfix(loss=f"{loss.item():.4f}")
 
     return total / len(loader.dataset)
 
@@ -109,6 +121,7 @@ def eval_epoch(model, loader, device):
         total += loss.item() * imgs.size(0)
 
     return total / len(loader.dataset)
+
 
 def main():
     dataset = PSegDataset()
@@ -139,7 +152,7 @@ def main():
 
         print(f"Epoch {epoch:02d} | train_loss={tr_loss:.4f} | val_loss={va_loss:.4f}")
 
-        # Save best by lowest validation loss
+        # save best by lowest validation loss
         if va_loss < best_val:
             best_val = va_loss
             torch.save(model.state_dict(), "best_deeplab_instances.pt")
