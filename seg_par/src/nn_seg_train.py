@@ -17,6 +17,19 @@ from seg_par.src.nn_seg_data import PSegDataset, build_deeplab_instance
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def focal_loss(logits, targets, alpha=0.25, gamma=2.0):
+    # Standard BCE is hates how many background pixels we have for a thin particle,
+    # the Gaussian peak probably covers <1% of the image, so the model learns to
+    # ignore peaks and just predict zero everywhere.
+    # Focal loss down-weights easy well-classified pixels (confident background)
+    # and concentrates gradient on the hard ones (the heatmap peaks).
+    bce = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+    p = torch.sigmoid(logits)
+    p_t = targets * p + (1 - targets) * (1 - p)
+    focal_weight = (1 - p_t) ** gamma
+    loss = alpha * focal_weight * bce
+    return loss.mean()
+
 def instance_losses(out, batch, w_center=1.0, w_off=0.1):
     """
     out: [B,4,H,W] where
@@ -38,15 +51,20 @@ def instance_losses(out, batch, w_center=1.0, w_off=0.1):
         fg_logits, fg_t.unsqueeze(1).float()
     )
 
-    # center heatmap loss (binary)
-    loss_center = F.binary_cross_entropy_with_logits(center_logits, center_t)
+    loss_center = focal_loss(center_logits, center_t)
 
     # offsets loss only where fg == 1
     fg_mask = (fg_t == 1).unsqueeze(1).float()  # [B,1,H,W]
-    denom = fg_mask.sum().clamp_min(1.0)
+    # weight each fg pixel by its distance from its instance centroid,
+    # so far-flung ends of long particles aren't drowned out by easy central pixels
+    offset_magnitude = (offsets_t ** 2).sum(dim=1, keepdim=True).sqrt()  # [B,1,H,W]
+    dist_weight = 1.0 + offset_magnitude / (offset_magnitude.max().clamp_min(1.0))
+    dist_weight = dist_weight * fg_mask
+
+    denom = dist_weight.sum().clamp_min(1.0)
     loss_off = (
-        F.smooth_l1_loss(offsets_pred * fg_mask, offsets_t * fg_mask, reduction="sum")
-        / denom
+            F.smooth_l1_loss(offsets_pred * dist_weight, offsets_t * dist_weight, reduction="sum")
+            / denom
     )
 
     total = loss_fg + w_center * loss_center + w_off * loss_off

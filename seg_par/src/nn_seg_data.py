@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 import random
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 import numpy as np
 from scipy import ndimage as ndi  # <-- FIX: needed for binary_erosion
 
@@ -92,7 +95,7 @@ def _gaussian_2d(h: int, w: int, cx: float, cy: float, sigma: float) -> np.ndarr
     g = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
     return g
 
-def idmap_to_targets(id_map: np.ndarray, sigma: float = 3.0):
+def idmap_to_targets(id_map: np.ndarray):
     """
     id_map: [H,W] int64, 0=background, 1..K instances
     returns:
@@ -120,9 +123,13 @@ def idmap_to_targets(id_map: np.ndarray, sigma: float = 3.0):
         cx = float(xs.mean())
         cy = float(ys.mean())
 
-        # center heatmap peak (gaussian)
+        # scale sigma with instance size so elongated particles get a learnable
+        # heatmap peak — a fixed sigma of 3 is invisible for a 200px rod
+        area = len(xs)
+        sigma = max(3.0, 0.1 * np.sqrt(area))
+
         g = _gaussian_2d(h, w, cx, cy, sigma).astype(np.float32)
-        center = np.maximum(center, g)  # max over instances
+        center = np.maximum(center, g)
 
         # offsets: for pixels in this instance, vector points to center
         offsets[0, ys, xs] = cx - xs
@@ -156,7 +163,7 @@ class TorchSegDataset(Dataset):
         seg_np = np.array(segmap, dtype=np.uint8)        # [H,W,3]
         id_map = seg_rgb_to_instance_ids(seg_np).astype(np.int64)  # [H,W]
 
-        fg_np, center_np, offsets_np = idmap_to_targets(id_map, sigma=self.sigma)
+        fg_np, center_np, offsets_np = idmap_to_targets(id_map)
 
         fg = torch.from_numpy(fg_np).long()                 # [H,W]
         center = torch.from_numpy(center_np).float()        # [1,H,W]
@@ -257,22 +264,46 @@ def build_deeplab_instance(num_out: int = 4):
 
 
 def main():
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     dataset = PSegDataset()
-    keys = list(dataset.total_dataset.keys())
 
-    batch_size = 12
-    rows, cols = 4, 4  # 4x4 grid (we'll leave last 4 blank if needed)
+    notable_keys = {
+        "Extra Interesting": [
+            "34f4fb273d",
+            "59424b060a",
+            "62a54f335d",
+        ],
+        "Long and thin": [
+            "08549eb98f",
+            "0e41d62d5d",
+            "2387be5eaf",
+            "2897b777fe",
+            "2bc87a8698",
+            "2bf4aa0195",
+            "2d6f268052",
+            "3f97a9e821",
+            "5f42a8d4a9",
+            "707120d0f5",
+        ],
+        "Overlapping": [
+            "208b16bbb7",
+            "40afb05b44",
+        ],
+        "Other": [
+            "2807b90ea9",
+        ],
+    }
 
-    for batch_start in range(0, len(keys), batch_size):
-        batch_keys = keys[batch_start: batch_start + batch_size]
+    for category, keys in notable_keys.items():
+        n = len(keys)
+        cols = min(n, 4)
+        rows = (n + cols - 1) // cols
 
-        fig, axes = plt.subplots(rows, cols, figsize=(12, 12))
-        axes = axes.flatten()
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 3, rows * 3))
+        fig.suptitle(category, fontsize=14, fontweight="bold")
+        axes = np.array(axes).flatten()
 
-        for i, key in enumerate(batch_keys):
+        for i, key in enumerate(keys):
             img, seg = dataset.total_dataset[key]
 
             seg_np = np.array(seg, dtype=np.uint8)
@@ -282,8 +313,7 @@ def main():
             axes[i].set_title(f"{key}\n(n={len(np.unique(id_map)) - 1})", fontsize=8)
             axes[i].axis("off")
 
-        # Hide unused subplots (since 4x4=16 but we show 12)
-        for j in range(len(batch_keys), rows * cols):
+        for j in range(len(keys), rows * cols):
             axes[j].axis("off")
 
         plt.tight_layout()
@@ -291,33 +321,4 @@ def main():
 
 
 if __name__ == "__main__":
-    """
-    Notable examples in dataset:
-    
-    Extra Interesting:
-    "34f4fb273d"
-    "59424b060a"
-    "62a54f335d"
-    
-    
-    Long and thin:
-    "08549eb98f"
-    "0e41d62d5d"
-    "2387be5eaf"
-    "2897b777fe"
-    "2bc87a8698"
-    "2bf4aa0195"
-    "2d6f268052"
-    "3f97a9e821"
-    "5f42a8d4a9"
-    "707120d0f5"
-    
-    Overlapping:
-    "208b16bbb7"
-    "40afb05b44"
-    
-    Other:
-    "2807b90ea9"
-    
-    """
     main()

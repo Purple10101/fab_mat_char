@@ -75,7 +75,7 @@ def visualise_val_predictions(
     fg_thresh=0.5,
     center_thresh=0.3,
     min_peak_dist=7,
-    max_assign_dist=12.0,
+    max_assign_dist=40.0,
     seed=0,
     show_centers=True,
 ):
@@ -176,7 +176,7 @@ def get_particles_from_val(
         fg_thresh=0.5,
         center_thresh=0.3,
         min_peak_dist=7,
-        max_assign_dist=12.0,
+        max_assign_dist=40.0,
         seed=0,
         show_centers=True,
         min_area_px=5,
@@ -232,34 +232,19 @@ def get_particles_from_val(
 
 
 def main():
-
-    important_keys = [
-                        "34f4fb273d",
-                        "59424b060a",
-                        "62a54f335d",
-                        "08549eb98f",
-                        "0e41d62d5d",
-                        "2387be5eaf",
-                        "2897b777fe",
-                        "2bc87a8698",
-                        "2bf4aa0195",
-                        "2d6f268052",
-                        "3f97a9e821",
-                        "5f42a8d4a9",
-                        "707120d0f5",
-                        "208b16bbb7",
-                        "40afb05b44",
-                        "2807b90ea9",
-                      ]
+    notable_keys = ["34f4fb273d",
+                    "59424b060a",
+                    "62a54f335d",
+                    ]
 
     model = build_deeplab_instance(num_out=4).to(device)
     model.load_state_dict(torch.load("best_deeplab_instances.pt", map_location=device))
 
     dataset = PSegDataset()
-    val_dataset = dataset.get_subset_torch_dataset(important_keys)
+    val_dataset = dataset.get_subset_torch_dataset(notable_keys)
     results = get_particles_from_val(
         model=model,
-        val_dataset=dataset.val_ds,
+        val_dataset=val_dataset,
         device=device
     )
     for particle in results[0]["particles"]:
