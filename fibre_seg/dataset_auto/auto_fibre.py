@@ -45,8 +45,6 @@ DEFAULT_CONFIG = {
 }
 
 
-# Instance colour palette
-
 def generate_instance_palette(n, rng):
     """
     Generate n visually distinct RGB colours for instance masks.
@@ -77,16 +75,12 @@ def generate_instance_palette(n, rng):
         colors.append(rgb)
     return colors
 
-
-# Fibre geometry helpers
-
 def make_straight_fibre(cx, cy, angle, length):
     half = length / 2
     return [
         (cx - math.cos(angle) * half, cy - math.sin(angle) * half),
         (cx + math.cos(angle) * half, cy + math.sin(angle) * half),
     ]
-
 
 def make_curved_fibre(cx, cy, angle, length, amplitude, n_points=40):
     cos_a, sin_a = math.cos(angle), math.sin(angle)
@@ -97,7 +91,6 @@ def make_curved_fibre(cx, cy, angle, length, amplitude, n_points=40):
     ys = cy + ts * sin_a + offsets * cos_a
     return list(zip(xs.tolist(), ys.tolist()))
 
-
 def draw_fibre(draw, points, width, color):
     flat = [c for pt in points for c in pt]
     draw.line(flat, fill=color, width=width, joint="curve")
@@ -105,20 +98,17 @@ def draw_fibre(draw, points, width, color):
     for x, y in points[::max(1, len(points) // 8)]:
         draw.ellipse([x - r, y - r, x + r, y + r], fill=color)
 
-
-# Single sample generator
-
 def generate_sample(cfg, rng):
     W, H = cfg["image_size"]
 
-    # RGB image: noisy background
+    # RGB image w a noisy background
     bg = np.full((H, W, 3), cfg["bg_color"], dtype=np.float32)
     bg += rng.normal(0, cfg["bg_noise_std"], bg.shape)
     bg = np.clip(bg, 0, 255).astype(np.uint8)
     image = Image.fromarray(bg, "RGB")
     img_draw = ImageDraw.Draw(image)
 
-    # Instance mask: black RGB background
+    # Instance mask
     mask = Image.new("RGB", (W, H), (0, 0, 0))
     mask_draw = ImageDraw.Draw(mask)
 
@@ -157,16 +147,13 @@ def generate_sample(cfg, rng):
             "width": width,
         })
 
-    # mild blur + noise on RGB image
+    # mild blur n noise on RGB image
     image = image.filter(ImageFilter.GaussianBlur(radius=0.6))
     img_arr = np.array(image, dtype=np.float32)
     img_arr += rng.normal(0, cfg["fibre_noise_std"], img_arr.shape)
     image = Image.fromarray(np.clip(img_arr, 0, 255).astype(np.uint8), "RGB")
 
     return image, mask, fibre_meta
-
-
-# Dataset builder
 
 def build_dataset(cfg, out_dir):
     rng = np.random.RandomState(cfg["seed"]) if cfg["seed"] is not None else np.random.RandomState()
@@ -221,9 +208,6 @@ def build_dataset(cfg, out_dir):
     print("   mask = np.array(Image.open('fibre_0000_mask.png'))  # H x W x 3")
     print("   rgb  = [180, 95, 210]   # from manifest fibres[i]['mask_rgb']")
     print("   inst = np.all(mask == rgb, axis=-1)                 # H x W bool")
-
-
-
 
 def parse_args():
     p = argparse.ArgumentParser(description="Synthetic fibre instance segmentation dataset")
