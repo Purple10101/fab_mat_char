@@ -12,73 +12,34 @@ import asyncio
 from multiprocessing import Queue
 import torch
 import cv2
+import os
 
-from common import Node, cprint, SharedImage
-
-
-def build_model(variant="maskrcnn_resnet50_fpn_v2", pretrained=True, trainable_backbone_layers=3):
-    """
-    Build a Mask R-CNN model fine-tuned for fibre segmentation.
-
-    Args:
-        variant                  : torchvision model name
-        pretrained               : load COCO pre-trained weights
-        trainable_backbone_layers: how many FPN layers to unfreeze (0-5)
-                                   3 is a good default — keeps early layers frozen
-
-    Returns:
-        model: torch.nn.Module ready for training
-    """
-    import torchvision
-    from torchvision.models.detection import (
-        MaskRCNN_ResNet50_FPN_Weights,
-        MaskRCNN_ResNet50_FPN_V2_Weights,
-    )
-    from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-    from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-    NUM_CLASSES = 2  # 0 = background, 1 = fibre
-
-    if variant == "maskrcnn_resnet50_fpn_v2":
-        weights = MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT if pretrained else None
-        model   = torchvision.models.detection.maskrcnn_resnet50_fpn_v2(
-            weights=weights,
-            trainable_backbone_layers=trainable_backbone_layers,
-        )
-    else:
-        weights = MaskRCNN_ResNet50_FPN_Weights.DEFAULT if pretrained else None
-        model   = torchvision.models.detection.maskrcnn_resnet50_fpn(
-            weights=weights,
-            trainable_backbone_layers=trainable_backbone_layers,
-        )
-
-    # ── Replace box classifier head ──
-    in_features_box = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features_box, NUM_CLASSES)
-
-    # ── Replace mask head ──
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    hidden_layer     = 256
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(
-        in_features_mask, hidden_layer, NUM_CLASSES
-    )
-
-    return model
-
+from msg.src.common.common import Node, cprint, SharedImage
+from msg.src.ss4.model import build_model
+from msg.src.ss4.infer import run_inference
 
 
 class ImageProcessingSS4:
-    """
-    Simulates an image processor.
-    """
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Device : {self.device}")
-        #self.model = build_model("maskrcnn_resnet50_fpn_v2", pretrained=False)
+
+        self.model = build_model("maskrcnn_resnet50_fpn_v2", pretrained=False)
+
+        ckpt_path = os.path.join(os.path.dirname(__file__), "runs/fibre_maskrcnn/best.pth")
+        ckpt = torch.load(ckpt_path, map_location=self.device)
+        self.model.load_state_dict(ckpt["model"])
+
+        self.model.to(self.device)
+        self.model.eval()
+        print(f"Loaded : {ckpt_path}")
 
     def run(self, image, metadata):
         """
         fabricated results for now
         """
+        fibres = run_inference(self.model, image, self.device,
+                               debug=True, debug_stem=f"frame_{metadata['image_id']}")
         ret_val = {
             "image_id": 99999,
             "char": [

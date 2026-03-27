@@ -13,10 +13,10 @@ import sys
 import time
 from multiprocessing import Process, Queue
 
-from common import cprint, COLORS, RESET, BOLD
-from ss3 import run_ss3
-from ss4 import run_ss4
-from ss5 import run_ss5
+from msg.src.common.common import cprint, COLORS, RESET, BOLD
+from msg.src.ss3.ss3 import run_ss3
+from msg.src.ss4.ss4 import run_ss4
+from msg.src.ss5.ss5 import run_ss5
 
 
 def main():

@@ -14,9 +14,8 @@ import pathlib
 from multiprocessing import Queue
 import cv2
 
-from common import Node, cprint, SharedImage
-
-IMAGE_PATH = pathlib.Path(__file__).parent / "data"
+from msg.src.common.common import Node, cprint, SharedImage
+from msg.src.common.paths import IMAGE_PATH
 
 
 
@@ -27,12 +26,12 @@ class ImageCaptureSS3:
     def __init__(self):
         self.images = self._get_images()
         self.metadata = [
-            {"x_mm": 100, "y_mm": 100, "valid": True},
-            {"x_mm": 100, "y_mm": 100, "valid": True},
-            {"x_mm": 100, "y_mm": 100, "valid": False},
-            {"x_mm": 100, "y_mm": 100, "valid": True},
-            {"x_mm": 100, "y_mm": 100, "valid": True},
-        ]
+            {"image_id": 0, "x_mm": 100, "y_mm": 100, "valid": True},
+            {"image_id": 1, "x_mm": 100, "y_mm": 100, "valid": True},
+            {"image_id": 2, "x_mm": 100, "y_mm": 100, "valid": False},
+            {"image_id": 3, "x_mm": 100, "y_mm": 100, "valid": True},
+            {"image_id": 4, "x_mm": 100, "y_mm": 100, "valid": True},
+            ]
 
     def _get_images(self):
         return [f for f in os.listdir(IMAGE_PATH) if f.lower().endswith((".png", ".jpg", ".bmp"))]
