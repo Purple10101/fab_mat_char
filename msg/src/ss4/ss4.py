@@ -15,8 +15,8 @@ import cv2
 import os
 
 from msg.src.common.common import Node, cprint, SharedImage
-from msg.src.ss4.model import build_model
-from msg.src.ss4.infer import run_inference
+from msg.src.ss4.seg.model import build_model
+from msg.src.ss4.seg.infer import run_inference
 
 
 class ImageProcessingSS4:
@@ -26,7 +26,7 @@ class ImageProcessingSS4:
 
         self.model = build_model("maskrcnn_resnet50_fpn_v2", pretrained=False)
 
-        ckpt_path = os.path.join(os.path.dirname(__file__), "runs/fibre_maskrcnn/best.pth")
+        ckpt_path = os.path.join(os.path.dirname(__file__), "seg/runs/fibre_maskrcnn/best.pth")
         ckpt = torch.load(ckpt_path, map_location=self.device)
         self.model.load_state_dict(ckpt["model"])
 

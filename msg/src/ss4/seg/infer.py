@@ -1,19 +1,17 @@
 """
-infer.py — Fibre instance segmentation inference + GT comparison
-================================================================
-No command line arguments needed. Edit the CONFIG block below,
-then just run:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Joshua Poole
+20260326
 
-    python infer.py
+infer.py
+fibre instance segmentation inference + GT comparison
 
 Output per sample (saved to CONFIG["out_dir"]):
     <n>_overlay.png     — image with coloured predicted instance masks
     <n>_pred.json       — predictions (scores, boxes, RLE masks)
     <n>_comparison.png  — 4-panel GT vs prediction figure
     <n>_fibres.png      — grid of every detected fibre, isolated on black
-
-Requirements:
-    pip install torch torchvision matplotlib scipy pycocotools pillow numpy
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 
 import json
@@ -32,7 +30,7 @@ from scipy.ndimage import binary_erosion
 import torchvision.transforms.functional as TF
 from pycocotools import mask as coco_mask_utils
 
-from msg.src.ss4.model import build_model
+from msg.src.ss4.seg.model import build_model
 
 
 # ════════════════════════════════════════════════════════════
@@ -475,7 +473,7 @@ def run_inference(
     image_size    = 512,
     score_thresh  = 0.4,
     debug         = False,
-    debug_out_dir = "./ss4/predictions",
+    debug_out_dir = "./ss4/seg/predictions",
     debug_stem    = "inference",
 ):
     """
